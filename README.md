@@ -1,65 +1,74 @@
 # LeafSound
 
-**LeafSound** est le projet audio de l'écosystème LeafVibe : une application Android et multiplateforme orientée musique, podcasts, création audio et fonctionnement hors ligne.
+**LeafSound** est le projet audio de l'écosystème LeafVibe : une application Android et multiplateforme orientée musique, podcasts, apprentissage musical et création audio, avec priorité au fonctionnement hors ligne.
 
 ## Objectifs
 - Lire et organiser les fichiers audio locaux, sans publicité.
 - Gérer bibliothèque, favoris, files d'attente et playlists.
+- Connecter les bibliothèques Shazam et Spotify via LeafSync, dans les limites des API officielles.
 - Découvrir et suivre des podcasts.
-- Enregistrer et créer de l'audio avec des outils de studio.
-- Proposer instruments, effets, visualisations et création algorithmique / algorave.
+- Apprendre la musique, jouer d'instruments virtuels et composer.
+- Enregistrer, mixer et exporter de l'audio.
+- Créer des performances algorithmiques / algorave en direct.
 - Fonctionner hors ligne pour toutes les fonctions qui ne nécessitent pas un service externe.
-- Garder les comptes externes séparés, avec OAuth officiel lorsque disponible.
 
 ## Modules prévus
 
 | Module | Rôle |
 |---|---|
-| LeafPlayer | Lecture audio et file d'attente |
+| LeafPlayer | Lecteur de fichiers audio locaux |
 | LeafLibrary | Bibliothèque locale et métadonnées |
 | LeafFavorites | Favoris |
 | LeafPlaylists | Playlists locales et listes intelligentes |
 | LeafPodcast | Podcasts |
-| LeafStudio | Création audio |
-| LeafSynth | Synthétiseurs et instruments |
-| LeafRecorder | Enregistrement |
+| LeafSync | Synchronisation Shazam ↔ Spotify |
+| LeafConnect | Ouverture et connexion aux services externes |
+| LeafStudio | Studio multipiste, mixage et export |
+| LeafSynth | Synthétiseurs et instruments virtuels |
+| LeafKeys | Piano, clavier et apprentissage des notes |
+| LeafDrums | Batterie, percussions et séquenceur |
+| LeafGuitar | Guitare et instruments à cordes virtuels |
+| LeafRecorder | Enregistrement audio |
 | LeafEffects | Effets et traitement |
+| LeafMixer | Mixage et pistes |
 | LeafConverter | Conversion de formats pris en charge |
 | LeafVisualizer | Visualisations audio |
-| LeafAlgoRave | Création musicale algorithmique et performances live |
-| **LeafSync** | Synchronisation Shazam ↔ Spotify |
+| LeafLearn | Cours, exercices et progression |
+| LeafAlgoRave | Composition algorithmique et performances live |
+
+## Écouter la musique
+LeafPlayer lit les fichiers audio locaux compatibles depuis le téléphone, une carte SD ou un support USB accessible. Il gère la recherche, les pochettes, les files d'attente, les playlists, les favoris, la lecture en arrière-plan et les sorties audio compatibles, dont Bluetooth.
+
+Les morceaux Spotify ne sont pas téléchargés ni réémis par LeafSound. LeafConnect ouvre le contenu dans l'application Spotify officielle et LeafSync gère les métadonnées et les playlists avec les autorisations prévues par Spotify. Les fonctions Spotify dépendantes du compte ou de l'accès développeur seront clairement signalées.
 
 ## LeafSync — Shazam ↔ Spotify
+- Importer un export ou des données partagées depuis Shazam.
+- Rechercher les titres correspondants dans Spotify.
+- Afficher les correspondances fortes, ambiguës et introuvables.
+- Prévisualiser les ajouts et demander confirmation.
+- Ajouter les titres validés à une playlist choisie, par défaut « Mes titres Shazam ».
+- Détecter les doublons, conserver un historique et permettre la reprise.
+- Ne jamais modifier la bibliothèque Shazam source ni supprimer automatiquement des titres Spotify.
 
-LeafSync permettra d'importer les titres reconnus dans Shazam, de retrouver leurs équivalents dans Spotify et de les organiser dans une playlist cible.
+Shazam ne doit pas être considéré comme disposant d'une API publique exploitable par défaut. Aucun scraping ou contournement de connexion. Spotify utilise son API officielle et OAuth 2.0 ; les fonctions disponibles dépendent des conditions et accès accordés à l'application.
 
-Fonctions prévues :
-- Import d'un export utilisateur ou de données partagées depuis Shazam.
-- Analyse du titre, de l'artiste, de l'album et de la date si disponibles.
-- Recherche Spotify et affichage du degré de confiance des correspondances.
-- Aperçu avant modification et validation explicite.
-- Ajout dans une playlist choisie (nom par défaut : « Mes titres Shazam »).
-- Détection des doublons et prévention des ajouts répétés.
-- Signalement des titres introuvables et des versions ambiguës (live, remix, remaster, etc.).
-- Classement multi-critères : genres, ambiances, artistes, années.
-- Historique local et reprise après interruption.
-- Aucune suppression ou modification de la bibliothèque Shazam d'origine ; aucune suppression Spotify automatique.
+## Composition et apprentissage
+LeafStudio doit proposer un séquenceur multipiste, piano roll, pistes audio et MIDI lorsque pris en charge, métronome, tempo, gamme, accords, effets, enregistrement et export.
 
-### Limites et sécurité
-Ne pas supposer l'existence d'une API publique Shazam exploitable. La première version privilégiera l'import d'un export fourni par l'utilisateur ou le partage de données depuis Shazam. Aucun scraping ni contournement de connexion.
+LeafLearn accompagne chaque instrument avec des leçons progressives, schémas de notes, exercices rythmiques, accords, gammes, entraînement à l'oreille, métronome, objectifs et suivi de progression. Les exercices doivent fonctionner hors ligne.
 
-Spotify sera intégré via son API officielle et OAuth 2.0. Les autorisations seront limitées au nécessaire. Les jetons et secrets ne seront jamais enregistrés dans GitHub ni dans les journaux. La lecture locale restera utilisable sans compte Spotify.
+LeafAlgoRave permet de créer et modifier des motifs rythmiques et mélodiques pendant leur lecture. Une intégration ou adaptation de Strudel/TidalCycles pourra être étudiée après vérification des licences, compatibilité Android, performances et exigences de publication du code source.
 
 ## Principes techniques
 - Android en priorité, architecture modulaire.
-- Stockage local et mode hors ligne en priorité.
-- Synchronisation réseau facultative, explicite et contrôlée.
-- Pas d'abonnement LeafSound ni de publicité intégrée.
-- Respect des API, conditions d'utilisation et droits des services tiers.
-- Aucun identifiant personnel ni secret dans le dépôt.
+- Lecture locale hors ligne, moteur audio indépendant des services externes.
+- Jetons OAuth stockés de façon sécurisée, jamais dans Git.
+- Aucune publicité intégrée et aucun abonnement LeafSound.
+- Respect des licences open source, API et conditions des services tiers.
 
 ## État du projet
-Ce dépôt constitue le point de départ documentaire. Les fonctions ci-dessus sont des objectifs de conception, pas des fonctions déclarées implémentées.
+Ce dépôt constitue le point de départ documentaire. Les modules et fonctions ci-dessus sont des objectifs de conception, pas des fonctions déclarées implémentées.
 
 ## Documentation
 - [Spécification LeafSync — Shazam ↔ Spotify](docs/LEAFSYNC_SHAZAM_SPOTIFY.md)
+- [Lecteur, studio, instruments, apprentissage et algorave](docs/LEAFSOUND_AUDIO_STUDIO.md)
