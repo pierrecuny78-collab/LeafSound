@@ -396,8 +396,9 @@ class MainActivity : Activity() {
         bar.addView(address, LinearLayout.LayoutParams(0, -2, 1f)); bar.addView(open)
         val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         controls.addView(actionButton("‹ Retour") { if (browser.canGoBack()) browser.goBack() }, weightParams())
-        controls.addView(actionButton("Choisir dossier SD") { chooseDownloadFolder() }, weightParams())
-        controls.addView(actionButton("Accueil") { browser.loadUrl("https://www.google.com") }, weightParams())
+        controls.addView(actionButton("☆ Favori") { saveBrowserBookmark(browser) }, weightParams())
+        controls.addView(actionButton("Sites") { showBrowserBookmarks(browser) }, weightParams())
+        controls.addView(actionButton("SD") { chooseDownloadFolder() }, weightParams())
         browser = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -450,6 +451,43 @@ class MainActivity : Activity() {
         dialog.show(); dialog.window?.setLayout(-1, -1)
         val last = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_LAST_WEB, null)
         if (!last.isNullOrBlank()) { address.setText(last); browser.loadUrl(last) }
+    }
+
+
+    private fun saveBrowserBookmark(browser: WebView) {
+        val url = browser.url ?: return
+        if (!url.startsWith("https://")) return
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val array = runCatching { JSONArray(prefs.getString(KEY_BOOKMARKS, "[]")) }.getOrElse { JSONArray() }
+        for (i in 0 until array.length()) if (array.optJSONObject(i)?.optString("url") == url) {
+            status.text = "Site déjà enregistré."; return
+        }
+        array.put(JSONObject().put("title", browser.title ?: Uri.parse(url).host).put("url", url))
+        prefs.edit().putString(KEY_BOOKMARKS, array.toString()).apply()
+        status.text = "Site ajouté aux favoris LeafBrowser."
+    }
+
+    private fun showBrowserBookmarks(browser: WebView) {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val array = runCatching { JSONArray(prefs.getString(KEY_BOOKMARKS, "[]")) }.getOrElse { JSONArray() }
+        if (array.length() == 0) { status.text = "Aucun site enregistré pour le moment."; return }
+        val labels = Array(array.length()) { i ->
+            val item = array.optJSONObject(i) ?: JSONObject()
+            item.optString("title", item.optString("url"))
+        }
+        AlertDialog.Builder(this).setTitle("Mes sites enregistrés")
+            .setItems(labels) { _, index ->
+                val url = array.optJSONObject(index)?.optString("url").orEmpty()
+                if (url.startsWith("https://")) browser.loadUrl(url)
+            }.setNeutralButton("Gérer") { _, _ ->
+                val options = Array(array.length()) { i -> labels[i] + " · supprimer" }
+                AlertDialog.Builder(this).setTitle("Supprimer un raccourci")
+                    .setItems(options) { _, index ->
+                        val rebuilt = JSONArray()
+                        for (i in 0 until array.length()) if (i != index) rebuilt.put(array.get(i))
+                        prefs.edit().putString(KEY_BOOKMARKS, rebuilt.toString()).apply()
+                    }.show()
+            }.setNegativeButton("Fermer", null).show()
     }
 
     private fun chooseDownloadFolder() {
@@ -928,6 +966,7 @@ class MainActivity : Activity() {
         private const val KEY_ACTIVE_CATEGORY = "active_category"
         private const val KEY_DOWNLOAD_FOLDER = "download_folder_uri"
         private const val KEY_LAST_WEB = "last_web_url"
+        private const val KEY_BOOKMARKS = "browser_bookmarks"
         private const val FILTER_ALL = "all"
         private const val FILTER_FAVORITES = "favorites"
         private const val FILTER_PLAYLIST = "playlist"
