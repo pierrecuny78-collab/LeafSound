@@ -311,7 +311,7 @@ class MainActivity : Activity() {
             isHorizontalScrollBarEnabled = true
             clipToPadding = false
             setPadding(2, 8, 2, 8)
-            addView(universBox, HorizontalScrollView.LayoutParams(-2, -1))
+            addView(universBox, android.view.ViewGroup.LayoutParams(-2, -1))
         }
         page.addView(horizontal, LinearLayout.LayoutParams(-1, 0, 1f))
         return page
