@@ -56,7 +56,7 @@ class MainActivity : Activity() {
     private var playerListener: Player.Listener? = null
     private lateinit var tracksBox: LinearLayout
     private lateinit var status: TextView
-    private lateinit var searchField: EditText
+    private lateinit var searchField: EditText\n    private var selectedPlaylistButton: Button? = null
     private var searchQuery = ""
     private val tracks = mutableListOf<Uri>()
     private val names = mutableListOf<String>()
@@ -228,7 +228,7 @@ class MainActivity : Activity() {
             textSize = 15f
             setTextColor(LeafColour.WALNUT)
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        selectedPlaylist.addView(actionButton("♫ " + activePlaylistName + "  ▾") { chooseActivePlaylist() })
+        selectedPlaylistButton = actionButton("♫ " + activePlaylistName + "  ▾") { chooseActivePlaylist() }\n        selectedPlaylist.addView(selectedPlaylistButton)
         selectedPlaylist.addView(actionButton("⚙ Paramètres") { showMusicSettings() })
         page.addView(selectedPlaylist)
         page.addView(actionButton("＋ Ajouter des musiques à la bibliothèque") { chooseAudio() })
