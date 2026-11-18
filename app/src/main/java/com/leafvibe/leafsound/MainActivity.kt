@@ -514,6 +514,7 @@ class MainActivity : Activity() {
                     CookieManager.getInstance().getCookie(task.url)?.let { setRequestProperty("Cookie", it) }
                 }
                 connection.connect()
+                require(connection.url.protocol == "https") { "Redirection non sécurisée refusée." }
                 require(connection.responseCode in 200..299) { "Réponse HTTP ${connection.responseCode}" }
                 val filename = URLUtil.guessFileName(task.url, task.disposition, task.mime)
                     .replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "audio-download" }
@@ -524,8 +525,10 @@ class MainActivity : Activity() {
                     connection.inputStream.use { input -> input.copyTo(output) }
                 }
                 runOnUiThread {
-                    if (!tracks.contains(file.uri)) { tracks.add(file.uri); names.add(filename); saveLibrary(); refreshTracks() }
-                    status.text = "Téléchargement enregistré sur la SD et ajouté à LeafSound : $filename"
+                    val audioExtensions = setOf("mp3", "m4a", "aac", "wav", "flac", "ogg", "opus", "wma", "aiff", "mid", "midi")
+                    val isAudio = task.mime?.startsWith("audio/") == true || filename.substringAfterLast(".", "").lowercase() in audioExtensions
+                    if (isAudio && !tracks.contains(file.uri)) { tracks.add(file.uri); names.add(filename); saveLibrary(); refreshTracks() }
+                    status.text = if (isAudio) "Audio enregistré sur la SD et ajouté à LeafSound : $filename" else "Fichier enregistré sur la SD : $filename"
                 }
             } catch (e: Exception) {
                 runOnUiThread { status.text = "Téléchargement impossible : ${e.message ?: "erreur"}" }
