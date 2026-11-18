@@ -106,6 +106,11 @@ class MainActivity : Activity() {
                             if (repeatLimit > 0 && repeatCount >= repeatLimit) { p?.repeatMode = Player.REPEAT_MODE_OFF; repeatScope = "none"; status.text = "Répétition du titre terminée." }
                         }
                         lastQueueIndex = now
+                        val artistLabel = mediaItem?.mediaMetadata?.artist?.toString().orEmpty()
+                        if (artistLabel.startsWith("LeafSound · Univers · ")) {
+                            activeCategoryName = artistLabel.removePrefix("LeafSound · Univers · ")
+                            saveLibrary()
+                        }
                         val activeUri = mediaItem?.localConfiguration?.uri
                         currentIndex = activeUri?.let { uri -> tracks.indexOf(uri) }?.takeIf { it >= 0 } ?: now
                         refreshTracks()
@@ -265,7 +270,7 @@ class MainActivity : Activity() {
         val ids = tracks.indices.filter { playlists[activePlaylistName]?.contains(tracks[it].toString()) == true }
         if (ids.isEmpty()) { status.text = "Playlist vide."; return }
         val p = controller ?: return
-        val items = ids.map { i -> MediaItem.Builder().setUri(tracks[i]).setMediaMetadata(MediaMetadata.Builder().setTitle(names[i]).setArtist("LeafSound · " + activePlaylistName).build()).build() }
+        val items = ids.map { i -> MediaItem.Builder().setUri(tracks[i]).setMediaMetadata(MediaMetadata.Builder().setTitle(names[i]).setArtist("LeafSound · Playlist · " + activePlaylistName).build()).build() }
         p.setMediaItems(items, 0, 0L); p.prepare(); p.play(); currentIndex = ids.first(); lastQueueIndex = 0
         status.text = "Lecture : " + activePlaylistName
     }
@@ -365,7 +370,7 @@ class MainActivity : Activity() {
         val p = controller ?: return
         val queue = indexes.map { i ->
             MediaItem.Builder().setUri(tracks[i]).setMediaMetadata(
-                MediaMetadata.Builder().setTitle(names[i]).setArtist("LeafSound · $category").build()
+                MediaMetadata.Builder().setTitle(names[i]).setArtist("LeafSound · Univers · $category").build()
             ).build()
         }
         p.setMediaItems(queue, 0, 0L); p.prepare(); p.play()
@@ -565,6 +570,7 @@ class MainActivity : Activity() {
         val categoryJson = JSONObject()
         categories.forEach { (name, values) -> categoryJson.put(name, JSONArray(values)) }
         root.put("categories", categoryJson)
+        root.put("categoryOrder", JSONArray(categories.keys))
         val categoryEmojiJson = JSONObject()
         categoryIcons.forEach { (name, emoji) -> categoryEmojiJson.put(name, emoji) }
         root.put("categoryIcons", categoryEmojiJson)
@@ -636,7 +642,10 @@ class MainActivity : Activity() {
                     if (importedKeys.containsKey(key)) destination.add(key)
                 }
             }
+            val importedOrder = root.optJSONArray("categoryOrder") ?: JSONArray()
+            val orderedCategoryNames = (0 until importedOrder.length()).map { importedOrder.optString(it) }
             val importedIcons = root.optJSONObject("categoryIcons") ?: JSONObject()
+            orderedCategoryNames.forEach { name -> if (categories.containsKey(name)) categories[name] = categories.remove(name) ?: linkedSetOf() }
             importedIcons.keys().forEach { name -> categoryIcons[name] = importedIcons.optString(name, "🎵") }
             val importedActiveCategory = root.optString("activeCategory")
             if (categories.containsKey(importedActiveCategory)) activeCategoryName = importedActiveCategory
@@ -917,7 +926,9 @@ class MainActivity : Activity() {
         val rawCategories = prefs.getString(KEY_CATEGORIES, null)
         if (!rawCategories.isNullOrBlank()) try {
             val obj = JSONObject(rawCategories)
-            obj.keys().forEach { name -> categories[name] = readStringArray(obj.optJSONArray(name)?.toString()).toCollection(linkedSetOf()) }
+            val savedOrder = readStringArray(prefs.getString(KEY_CATEGORY_ORDER, null))
+            savedOrder.forEach { name -> if (obj.has(name)) categories[name] = readStringArray(obj.optJSONArray(name)?.toString()).toCollection(linkedSetOf()) }
+            obj.keys().forEach { name -> if (!categories.containsKey(name)) categories[name] = readStringArray(obj.optJSONArray(name)?.toString()).toCollection(linkedSetOf()) }
         } catch (_: Exception) {}
         val rawCategoryIcons = prefs.getString(KEY_CATEGORY_ICONS, null)
         if (!rawCategoryIcons.isNullOrBlank()) try {
@@ -954,6 +965,7 @@ class MainActivity : Activity() {
             .putString(KEY_NAMES, encode(names)).putString(KEY_FAVORITES, encode(favorites))
             .putString(KEY_PLAYLISTS, savedLists.toString()).putString(KEY_ACTIVE_PLAYLIST, activePlaylistName)
             .putString(KEY_CATEGORIES, savedCategories.toString()).putString(KEY_CATEGORY_ICONS, savedCategoryIcons.toString())
+            .putString(KEY_CATEGORY_ORDER, JSONArray(categories.keys).toString())
             .putString(KEY_ACTIVE_CATEGORY, activeCategoryName).apply()
     }
 
@@ -981,6 +993,7 @@ class MainActivity : Activity() {
         private const val KEY_ACTIVE_PLAYLIST = "active_playlist"
         private const val KEY_CATEGORIES = "music_categories"
         private const val KEY_CATEGORY_ICONS = "music_category_icons"
+        private const val KEY_CATEGORY_ORDER = "music_category_order"
         private const val KEY_ACTIVE_CATEGORY = "active_category"
         private const val KEY_DOWNLOAD_FOLDER = "download_folder_uri"
         private const val KEY_LAST_WEB = "last_web_url"
