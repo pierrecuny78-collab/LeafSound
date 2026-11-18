@@ -1,6 +1,9 @@
 package com.leafvibe.leafsound
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.pm.PackageManager
+import android.os.Build
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Color
@@ -34,7 +37,12 @@ class MainActivity : Activity() {
     private val tracks = mutableListOf<Uri>()
     private val names = mutableListOf<String>()
     private val favorites = linkedSetOf<String>()
-    private val playlist = linkedSetOf<String>()
+    private val playlists = linkedMapOf<String, LinkedHashSet<String>>()
+    private var activePlaylistName = "Ma playlist"
+    private var repeatLimit = 0
+    private var repeatCount = 0
+    private var repeatScope = "none"
+    private var lastQueueIndex = -1
     private var currentIndex = -1
     private var filter = FILTER_ALL
     private val green = Color.rgb(34, 139, 87)
@@ -43,6 +51,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         loadLibrary()
+        requestNotificationPermission()
         buildInterface()
         connectPlaybackService()
     }
@@ -59,7 +68,17 @@ class MainActivity : Activity() {
                         status.text = if (isPlaying) "Lecture en cours" else "Lecture en pause"
                     }
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                        currentIndex = controller?.currentMediaItemIndex ?: -1
+                        val p = controller
+                        val now = p?.currentMediaItemIndex ?: -1
+                        if (repeatScope == "playlist" && now == 0 && lastQueueIndex == (p?.mediaItemCount ?: 0) - 1) {
+                            repeatCount++
+                            if (repeatLimit > 0 && repeatCount >= repeatLimit) { p?.repeatMode = Player.REPEAT_MODE_OFF; repeatScope = "none"; status.text = "Répétition de la playlist terminée." }
+                        } else if (repeatScope == "track" && reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+                            repeatCount++
+                            if (repeatLimit > 0 && repeatCount >= repeatLimit) { p?.repeatMode = Player.REPEAT_MODE_OFF; repeatScope = "none"; status.text = "Répétition du titre terminée." }
+                        }
+                        lastQueueIndex = now
+                        currentIndex = now
                         refreshTracks()
                     }
                 }
@@ -120,6 +139,10 @@ class MainActivity : Activity() {
         filters.addView(actionButton("♥ Favoris") { setFilter(FILTER_FAVORITES) }, weightParams())
         filters.addView(actionButton("♫ Playlist") { setFilter(FILTER_PLAYLIST) }, weightParams())
         root.addView(filters)
+        val playlistActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        playlistActions.addView(actionButton("＋ Gérer playlists") { managePlaylists() }, weightParams())
+        playlistActions.addView(actionButton("▶ Lire playlist") { playActivePlaylist() }, weightParams())
+        root.addView(playlistActions)
 
         val controls = LinearLayout(this).apply {
             gravity = Gravity.CENTER
@@ -136,12 +159,7 @@ class MainActivity : Activity() {
                 status.text = "Lecture aléatoire : " + (if (player.shuffleModeEnabled) "activée" else "désactivée")
             }
         }, weightParams())
-        playbackModes.addView(actionButton("Répéter") {
-            controller?.let { player ->
-                player.repeatMode = if (player.repeatMode == Player.REPEAT_MODE_OFF) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
-                status.text = "Répétition : " + (if (player.repeatMode == Player.REPEAT_MODE_ALL) "activée" else "désactivée")
-            }
-        }, weightParams())
+        playbackModes.addView(actionButton("Répéter 1× à ∞") { chooseRepeat() }, weightParams())
         root.addView(playbackModes)
 
         root.addView(TextView(this).apply {
@@ -171,6 +189,55 @@ class MainActivity : Activity() {
             setBackgroundTintList(android.content.res.ColorStateList.valueOf(green))
             setOnClickListener { action() }
         }
+
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS)
+    }
+
+    private fun managePlaylists() {
+        val options = arrayOf("Créer", "Choisir", "Renommer", "Supprimer")
+        AlertDialog.Builder(this).setTitle("Playlists : " + activePlaylistName).setItems(options) { _, which ->
+            when (which) {
+                0 -> editPlaylistName("Nouvelle playlist", "") { name -> if (name.isNotBlank() && !playlists.containsKey(name)) { playlists[name] = linkedSetOf(); activePlaylistName = name; saveLibrary(); refreshTracks() } }
+                1 -> {
+                    val names = playlists.keys.toTypedArray()
+                    AlertDialog.Builder(this).setTitle("Choisir").setItems(names) { _, i -> activePlaylistName = names[i]; saveLibrary(); setFilter(FILTER_PLAYLIST) }.show()
+                }
+                2 -> editPlaylistName("Renommer", activePlaylistName) { name -> if (name.isNotBlank() && (name == activePlaylistName || !playlists.containsKey(name))) { val data = playlists.remove(activePlaylistName) ?: linkedSetOf(); playlists[name] = data; activePlaylistName = name; saveLibrary(); refreshTracks() } }
+                3 -> if (playlists.size > 1) AlertDialog.Builder(this).setMessage("Supprimer cette playlist ? Les fichiers audio restent intacts.").setNegativeButton("Annuler", null).setPositiveButton("Supprimer") { _, _ -> playlists.remove(activePlaylistName); activePlaylistName = playlists.keys.first(); saveLibrary(); refreshTracks() }.show() else status.text = "Il faut conserver une playlist."
+            }
+        }.setNegativeButton("Fermer", null).show()
+    }
+
+    private fun editPlaylistName(title: String, initial: String, done: (String) -> Unit) {
+        val field = EditText(this).apply { setText(initial); hint = "Nom" }
+        AlertDialog.Builder(this).setTitle(title).setView(field).setNegativeButton("Annuler", null).setPositiveButton("OK") { _, _ -> done(field.text.toString().trim()) }.show()
+    }
+
+    private fun playActivePlaylist() {
+        val ids = tracks.indices.filter { playlists[activePlaylistName]?.contains(tracks[it].toString()) == true }
+        if (ids.isEmpty()) { status.text = "Playlist vide."; return }
+        val p = controller ?: return
+        val items = ids.map { i -> MediaItem.Builder().setUri(tracks[i]).setMediaMetadata(MediaMetadata.Builder().setTitle(names[i]).setArtist("LeafSound · " + activePlaylistName).build()).build() }
+        p.setMediaItems(items, 0, 0L); p.prepare(); p.play(); currentIndex = ids.first(); lastQueueIndex = 0
+        status.text = "Lecture : " + activePlaylistName
+    }
+
+    private fun chooseRepeat() {
+        AlertDialog.Builder(this).setTitle("Répéter").setItems(arrayOf("Ce titre", "La playlist active")) { _, scope ->
+            val choices = arrayOf("Désactivé", "1×", "2×", "3×", "4×", "5×", "∞")
+            AlertDialog.Builder(this).setTitle("Nombre de répétitions").setItems(choices) { _, n ->
+                val p = controller ?: return@setItems
+                repeatLimit = when (n) { 0 -> 0; 6 -> -1; else -> n }
+                repeatCount = 0
+                repeatScope = if (repeatLimit == 0) "none" else if (scope == 0) "track" else "playlist"
+                p.repeatMode = when { repeatLimit == 0 -> Player.REPEAT_MODE_OFF; scope == 0 -> Player.REPEAT_MODE_ONE; else -> Player.REPEAT_MODE_ALL }
+                status.text = if (repeatLimit == 0) "Répétition désactivée" else "Répétition activée : " + (if (repeatLimit < 0) "infinie" else repeatLimit.toString() + " fois")
+            }.show()
+        }.setNegativeButton("Annuler", null).show()
+    }
 
     private fun chooseAudio() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -227,7 +294,7 @@ class MainActivity : Activity() {
         val visible = tracks.indices.filter { index ->
             val matchesFilter = when (filter) {
                 FILTER_FAVORITES -> favorites.contains(tracks[index].toString())
-                FILTER_PLAYLIST -> playlist.contains(tracks[index].toString())
+                FILTER_PLAYLIST -> playlists[activePlaylistName]?.contains(tracks[index].toString()) == true
                 else -> true
             }
             matchesFilter && names[index].lowercase().contains(searchQuery)
@@ -236,7 +303,7 @@ class MainActivity : Activity() {
             tracksBox.addView(TextView(this).apply {
                 text = when (filter) {
                     FILTER_FAVORITES -> "Aucun favori. Utilise le cœur à côté d'un titre."
-                    FILTER_PLAYLIST -> "Playlist vide. Ajoute des titres avec le bouton +."
+                    FILTER_PLAYLIST -> "Playlist « " + activePlaylistName + " » vide. Ajoute des titres avec le bouton +."
                     else -> "Aucun titre. Utilise « Ajouter des musiques »."
                 }
                 setTextColor(Color.LTGRAY)
@@ -264,8 +331,9 @@ class MainActivity : Activity() {
                 saveLibrary()
                 refreshTracks()
             })
-            line.addView(actionButton(if (playlist.contains(uriKey)) "−" else "+") {
-                if (!playlist.add(uriKey)) playlist.remove(uriKey)
+            line.addView(actionButton(if (playlists[activePlaylistName]?.contains(uriKey) == true) "−" else "+") {
+                val selected = playlists.getOrPut(activePlaylistName) { linkedSetOf() }
+                if (!selected.add(uriKey)) selected.remove(uriKey)
                 saveLibrary()
                 refreshTracks()
             })
@@ -281,7 +349,7 @@ class MainActivity : Activity() {
         val removed = tracks.removeAt(index)
         names.removeAt(index)
         favorites.remove(removed.toString())
-        playlist.remove(removed.toString())
+        playlists.values.forEach { it.remove(removed.toString()) }
         if (currentIndex == index) {
             controller?.stop()
             controller?.clearMediaItems()
@@ -349,10 +417,16 @@ class MainActivity : Activity() {
             }
         }
         favorites.addAll(readStringArray(prefs.getString(KEY_FAVORITES, null)))
-        playlist.addAll(readStringArray(prefs.getString(KEY_PLAYLIST, null)))
+        val raw = prefs.getString(KEY_PLAYLISTS, null)
+        if (!raw.isNullOrBlank()) try {
+            val obj = org.json.JSONObject(raw)
+            obj.keys().forEach { name -> playlists[name] = readStringArray(obj.optJSONArray(name)?.toString()).toCollection(linkedSetOf()) }
+        } catch (_: Exception) {}
+        if (playlists.isEmpty()) playlists["Ma playlist"] = linkedSetOf()
+        activePlaylistName = prefs.getString(KEY_ACTIVE_PLAYLIST, null)?.takeIf { playlists.containsKey(it) } ?: playlists.keys.first()
         val valid = tracks.map { it.toString() }.toSet()
         favorites.retainAll(valid)
-        playlist.retainAll(valid)
+        playlists.values.forEach { it.retainAll(valid) }
     }
 
     private fun readStringArray(raw: String?): List<String> {
@@ -366,12 +440,11 @@ class MainActivity : Activity() {
     private fun saveLibrary() {
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
         fun encode(values: Collection<String>) = JSONArray(values).toString()
-        prefs.edit()
-            .putString(KEY_URIS, encode(tracks.map { it.toString() }))
-            .putString(KEY_NAMES, encode(names))
-            .putString(KEY_FAVORITES, encode(favorites))
-            .putString(KEY_PLAYLIST, encode(playlist))
-            .apply()
+        val savedLists = org.json.JSONObject()
+        playlists.forEach { (name, values) -> savedLists.put(name, JSONArray(values)) }
+        prefs.edit().putString(KEY_URIS, encode(tracks.map { it.toString() }))
+            .putString(KEY_NAMES, encode(names)).putString(KEY_FAVORITES, encode(favorites))
+            .putString(KEY_PLAYLISTS, savedLists.toString()).putString(KEY_ACTIVE_PLAYLIST, activePlaylistName).apply()
     }
 
     override fun onDestroy() {
@@ -383,11 +456,13 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_AUDIO = 4101
+        private const val REQUEST_NOTIFICATIONS = 4102
         private const val PREFS = "leafsound_library"
         private const val KEY_URIS = "uris"
         private const val KEY_NAMES = "names"
         private const val KEY_FAVORITES = "favorites"
-        private const val KEY_PLAYLIST = "playlist"
+        private const val KEY_PLAYLISTS = "playlists"
+        private const val KEY_ACTIVE_PLAYLIST = "active_playlist"
         private const val FILTER_ALL = "all"
         private const val FILTER_FAVORITES = "favorites"
         private const val FILTER_PLAYLIST = "playlist"
