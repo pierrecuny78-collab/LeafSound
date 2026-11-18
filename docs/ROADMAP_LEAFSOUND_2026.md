@@ -86,7 +86,7 @@ Les références servent à définir des attentes de qualité. LeafSound garde s
 
 | Version cible | Contenu |
 |---|---|
-| 0.4.x | Playlists nommées, répétitions bornées, notification de lecture et commandes système |
+| 0.4.x | Playlists nommées, répétitions bornées, notification de lecture et commandes système |\n| 0.5.0 | Sauvegarde/import JSON, export des fichiers audio vers un dossier choisi et téléchargement HTTPS direct de contenus autorisés |
 | 0.5.x | File d'attente, métadonnées, pochettes, historique, dossiers et listes intelligentes |
 | 0.6.x | LeafIdentify : interface micro, historique, intégration fournisseur de reconnaissance après validation des conditions |
 | 0.7.x | LeafDiscover : actualités RSS, sorties, artistes, cache hors ligne |
