@@ -28,8 +28,8 @@ class PlaybackService : MediaSessionService() {
             setHandleAudioBecomingNoisy(true)
             setWakeMode(C.WAKE_MODE_LOCAL)
         }
-        val cycleCommand = SessionCommand(ACTION_NEXT_UNIVERSE, Bundle.EMPTY)
-        val categoryButton = buildCategoryButton("Univers suivant", cycleCommand)
+        val cycleCommand = SessionCommand(ACTION_NEXT_PLAYLIST, Bundle.EMPTY)
+        val categoryButton = buildCategoryButton("Playlist suivante", cycleCommand)
         val callback = object : MediaSession.Callback {
             override fun onConnect(
                 session: MediaSession,
@@ -53,7 +53,7 @@ class PlaybackService : MediaSessionService() {
                 args: Bundle
             ): ListenableFuture<SessionResult> {
                 if (customCommand.customAction == ACTION_NEXT_UNIVERSE) {
-                    playNextUniverse(player)
+                    playNextPlaylist(player)
                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
                 return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
@@ -65,7 +65,7 @@ class PlaybackService : MediaSessionService() {
             .build()
     }
 
-    private fun playNextUniverse(player: ExoPlayer) {
+    private fun playNextPlaylist(player: ExoPlayer) {
         val prefs = getSharedPreferences("leafsound_library", MODE_PRIVATE)
         val categories = runCatching { JSONObject(prefs.getString("music_categories", "{}") ?: "{}") }.getOrNull()
             ?: return
@@ -96,11 +96,11 @@ class PlaybackService : MediaSessionService() {
             val uri = values.optString(i)
             val title = uriToName[uri] ?: continue
             items.add(MediaItem.Builder().setUri(uri).setMediaMetadata(
-                MediaMetadata.Builder().setTitle(title).setArtist("LeafSound · Univers · $nextName").build()
+                MediaMetadata.Builder().setTitle(title).setArtist("LeafSound · Playlist · $nextName").build()
             ).build())
         }
         if (items.isEmpty()) return
-        prefs.edit().putString("active_category", nextName).apply()
+        prefs.edit().putString("active_playlist", nextName).apply()
         mediaSession?.setCustomLayout(listOf(buildCategoryButton("Suivant · $nextName", SessionCommand(ACTION_NEXT_UNIVERSE, Bundle.EMPTY))))
         player.setMediaItems(items, 0, 0L)
         player.prepare()
