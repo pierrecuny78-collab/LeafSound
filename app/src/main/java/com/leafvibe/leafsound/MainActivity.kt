@@ -553,7 +553,8 @@ class MainActivity : Activity() {
         val ids = tracks.indices.filter { playlists[activePlaylistName]?.contains(tracks[it].toString()) == true }
         if (ids.isEmpty()) { status.text = "Playlist vide."; return }
         val p = controller ?: return
-        val items = ids.map { i -> MediaItem.Builder().setUri(tracks[i]).setMediaMetadata(MediaMetadata.Builder().setTitle(names[i]).setArtist("LeafSound · Playlist · " + activePlaylistName).build()).build() }
+        val playlistLabel = if (getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean("notification_show_playlist", true)) "LeafSound · Playlist · " + activePlaylistName else "LeafSound"
+        val items = ids.map { i -> MediaItem.Builder().setUri(tracks[i]).setMediaMetadata(MediaMetadata.Builder().setTitle(names[i]).setArtist(playlistLabel).build()).build() }
         p.setMediaItems(items, 0, 0L); p.prepare(); p.play(); currentIndex = ids.first(); lastQueueIndex = 0
         status.text = "Lecture : " + activePlaylistName
     }
