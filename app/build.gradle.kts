@@ -9,8 +9,8 @@ android {
         applicationId = "com.leafvibe.leafsound"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.4.0"
+        versionCode = 6
+        versionName = "0.5.0"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -22,4 +22,5 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.11.1")
     implementation("androidx.media3:media3-session:1.11.1")
     implementation("androidx.media3:media3-common:1.11.1")
+    implementation("androidx.documentfile:documentfile:1.0.1")
 }
