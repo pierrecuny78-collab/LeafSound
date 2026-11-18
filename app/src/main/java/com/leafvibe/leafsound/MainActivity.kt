@@ -25,6 +25,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.HorizontalScrollView
 import android.widget.TextView
 import android.app.Dialog
 import android.view.Window
@@ -68,6 +69,8 @@ class MainActivity : Activity() {
     private var activeCategoryName = ""
     private var browserDialog: Dialog? = null
     private var downloadFolderUri: Uri? = null
+    private var musicFolderUri: Uri? = null
+    @Volatile private var scanningMusicFolder = false
     private var pendingDownload: PendingDownload? = null
     private val downloadExecutor = Executors.newSingleThreadExecutor()
     private var activePlaylistName = "Ma playlist"
@@ -87,12 +90,18 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         LeafColour.select(getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_THEME, "oasis") ?: "oasis")
         loadLibrary()
+        musicFolderUri = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_MUSIC_FOLDER, null)?.let { runCatching { Uri.parse(it) }.getOrNull() }
         if (playlists.isEmpty()) playlists["Ma playlist"] = linkedSetOf()
         if (!playlists.containsKey(activePlaylistName)) activePlaylistName = playlists.keys.first()
         saveLibrary()
         requestNotificationPermission()
         buildInterface()
         connectPlaybackService()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        scanWatchedMusicFolder()
     }
 
     private fun connectPlaybackService() {
@@ -239,7 +248,9 @@ class MainActivity : Activity() {
         selectedPlaylist.addView(selectedPlaylistButton, LinearLayout.LayoutParams(0, -2, 1.25f))
         selectedPlaylist.addView(actionButton("⚙") { showMusicSettings() }, LinearLayout.LayoutParams(0, -2, 0.45f))
         page.addView(selectedPlaylist)
-        page.addView(actionButton("＋ Ajouter des musiques à la bibliothèque") { chooseAudio() })
+        page.addView(actionButton("＋ Choisir le dossier musical SD (une seule fois)") { chooseMusicFolder() })
+        page.addView(actionButton("↻ Rechercher les nouveaux morceaux") { scanWatchedMusicFolder(forceMessage = true) })
+        page.addView(actionButton("＋ Ajouter des fichiers ponctuellement") { chooseAudio() })
         page.addView(actionButton("📁 Voir les emplacements des titres") { showStorageLocations() })
         searchField = EditText(this).apply {
             hint = "Rechercher un titre…"
@@ -290,13 +301,19 @@ class MainActivity : Activity() {
 
     private fun buildUniversPage(): View {
         val page = makePage()
-        addPageHeading(page, "Playlists musicales", "Tes catégories de classement : chaque playlist contient ses propres morceaux.")
+        addPageHeading(page, "Playlists musicales", "Fais défiler tes playlists horizontalement, comme les catégories de LeafNotes.")
         val playlistTools = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         playlistTools.addView(actionButton("＋ Créer") { createPlaylist(); refreshUniversPage() }, weightParams())
         playlistTools.addView(actionButton("⚙ Gérer") { managePlaylists(); refreshUniversPage() }, weightParams())
         page.addView(playlistTools)
-        universBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        addScrollable(page, universBox)
+        universBox = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val horizontal = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = true
+            clipToPadding = false
+            setPadding(2, 8, 2, 8)
+            addView(universBox, HorizontalScrollView.LayoutParams(-2, -1))
+        }
+        page.addView(horizontal, LinearLayout.LayoutParams(-1, 0, 1f))
         return page
     }
 
@@ -307,64 +324,72 @@ class MainActivity : Activity() {
             universBox.addView(TextView(this).apply {
                 text = "Aucune playlist pour le moment. Crée ta première playlist."
                 setTextColor(LeafColour.WALNUT)
-                setPadding(8, 14, 8, 14)
+                setPadding(12, 18, 12, 18)
             })
             return
         }
+        val density = resources.displayMetrics.density
         playlists.keys.toList().forEach { name ->
             val count = playlists[name]?.size ?: 0
-            val row = LinearLayout(this).apply {
+            val active = name == activePlaylistName
+            val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                val pad = (10 * resources.displayMetrics.density).toInt()
+                gravity = Gravity.TOP
+                val pad = (12 * density).toInt()
                 setPadding(pad, pad, pad, pad)
-                setBackgroundColor(LeafColour.SURFACE)
+                setBackgroundColor(if (active) LeafColour.BACKGROUND else LeafColour.SURFACE)
             }
-            row.addView(TextView(this).apply {
-                text = (if (name == activePlaylistName) "✓ " else "♫ ") + name + "  ·  " + count + " morceau(x)"
+            card.addView(TextView(this).apply {
+                text = (if (active) "✓ " else "♫ ") + name
                 textSize = 16f
-                setTextColor(LeafColour.WALNUT)
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setTextColor(LeafColour.PRIMARY)
+                setPadding(0, 0, 0, (6 * density).toInt())
             })
-            val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            actions.addView(actionButton("✓ Choisir") {
-                activePlaylistName = name
-                selectedPlaylistButton?.text = "♫ " + name + "  ▾"
-                filter = FILTER_PLAYLIST
-                saveLibrary()
-                refreshTracks()
-                showPage(0)
-            }, weightParams())
-            actions.addView(actionButton("▶ Lire") {
-                activePlaylistName = name
-                saveLibrary()
-                playActivePlaylist()
-            }, weightParams())
-            actions.addView(actionButton("♫ Titres") { showPlaylistTracks(name) }, weightParams())
-            row.addView(actions)
-            val trackIndexes = tracks.indices.filter { playlists[name]?.contains(tracks[it].toString()) == true }
-            val trackNames = trackIndexes.take(4).map { names[it] }
-            row.addView(TextView(this).apply {
-                text = when {
-                    trackIndexes.isEmpty() -> "Aucun morceau · ajoute des titres depuis la bibliothèque"
-                    else -> trackNames.mapIndexed { i, title -> "${i + 1}. $title" }.joinToString("\n") +
-                        if (trackIndexes.size > 4) "\n… et ${trackIndexes.size - 4} autre(s)" else ""
-                }
+            card.addView(TextView(this).apply {
+                text = "$count morceau(x)"
                 textSize = 12f
-                maxLines = 5
                 setTextColor(LeafColour.TEXT)
-                setPadding(12, 4, 8, 8)
             })
-            val orderActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            orderActions.addView(actionButton("↑") { movePlaylist(name, -1) }, weightParams())
-            orderActions.addView(actionButton("↓") { movePlaylist(name, 1) }, weightParams())
-            row.addView(orderActions)
-            val cardParams = LinearLayout.LayoutParams(-1, -2).apply {
-                val gap = (6 * resources.displayMetrics.density).toInt()
-                setMargins(0, gap, 0, gap)
-            }
-            universBox.addView(row, cardParams)
-            universBox.addView(View(this).apply { setBackgroundColor(LeafColour.SAND_BROWN) },
-                LinearLayout.LayoutParams(-1, 1))
+            val indexes = tracks.indices.filter { playlists[name]?.contains(tracks[it].toString()) == true }
+            val preview = indexes.take(3).map { names[it] }
+            card.addView(TextView(this).apply {
+                text = if (preview.isEmpty()) "Playlist vide" else preview.joinToString("\n") { "♪ $it" } +
+                    if (indexes.size > 3) "\n+ ${indexes.size - 3} autre(s)" else ""
+                textSize = 12f
+                maxLines = 4
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setTextColor(LeafColour.TEXT)
+                setPadding(0, (10 * density).toInt(), 0, (10 * density).toInt())
+            })
+            card.addView(actionButton(if (active) "✓ Sélectionnée" else "Choisir") {
+                activatePlaylist(name)
+                showPage(0)
+            })
+            card.addView(actionButton("▶ Lire") {
+                activatePlaylist(name)
+                playActivePlaylist()
+            })
+            card.addView(actionButton("Titres · modifier") { showPlaylistTracks(name) })
+            val order = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            order.addView(actionButton("←") { movePlaylist(name, -1) }, LinearLayout.LayoutParams(0, -2, 1f))
+            order.addView(actionButton("→") { movePlaylist(name, 1) }, LinearLayout.LayoutParams(0, -2, 1f))
+            card.addView(order)
+            universBox.addView(card, LinearLayout.LayoutParams((220 * density).toInt(), -2).apply {
+                marginEnd = (10 * density).toInt()
+            })
         }
+    }
+
+    private fun activatePlaylist(name: String) {
+        if (!playlists.containsKey(name)) return
+        activePlaylistName = name
+        filter = FILTER_PLAYLIST
+        selectedPlaylistButton?.text = "♫ $name  ▾"
+        saveLibrary()
+        refreshTracks()
+        refreshUniversPage()
     }
 
     private fun buildSitesPage(): View {
@@ -393,6 +418,8 @@ class MainActivity : Activity() {
         page.addView(actionButton("Télécharger un fichier audio autorisé") { downloadAudio() })
         page.addView(actionButton("🎨 Thèmes et apparence") { showThemeSettings() })
         page.addView(actionButton("📁 Emplacements des fichiers") { showStorageLocations() })
+        page.addView(actionButton("🎵 Choisir / changer le dossier musical SD") { chooseMusicFolder() })
+        page.addView(actionButton("↻ Actualiser les nouveaux sons") { scanWatchedMusicFolder(forceMessage = true) })
         page.addView(actionButton("LeafTracker · statistiques (préparation)") {
             AlertDialog.Builder(this)
                 .setTitle("LeafTracker Connect")
@@ -540,12 +567,7 @@ class MainActivity : Activity() {
         val labels = names.map { playlistName -> playlistName + "  ·  " + (playlists[playlistName]?.size ?: 0) + " titre(s)" }.toTypedArray()
         AlertDialog.Builder(this).setTitle("Choisir la playlist musicale")
             .setSingleChoiceItems(labels, names.indexOf(activePlaylistName)) { dialog, which ->
-                activePlaylistName = names[which]
-                filter = FILTER_PLAYLIST
-                selectedPlaylistButton?.text = "♫ " + activePlaylistName + "  ▾"
-                saveLibrary()
-                refreshTracks()
-                refreshUniversPage()
+                activatePlaylist(names[which])
                 dialog.dismiss()
             }.setNeutralButton("＋ Nouvelle") { _, _ -> createPlaylist() }
             .setNegativeButton("Fermer", null).show()
@@ -1116,6 +1138,62 @@ class MainActivity : Activity() {
             }.show()
     }
 
+    private fun chooseMusicFolder() {
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQUEST_MUSIC_FOLDER)
+    }
+
+    private fun scanWatchedMusicFolder(forceMessage: Boolean = false) {
+        val rootUri = musicFolderUri ?: return
+        if (scanningMusicFolder) return
+        scanningMusicFolder = true
+        downloadExecutor.execute {
+            val found = linkedMapOf<String, Pair<Uri, String>>()
+            val extensions = setOf("mp3", "m4a", "aac", "wav", "flac", "ogg", "opus", "wma", "aiff", "aif", "mid", "midi", "amr", "3gp")
+            fun walk(folder: DocumentFile, depth: Int) {
+                if (depth > 8 || found.size >= 20000) return
+                folder.listFiles().forEach { item ->
+                    if (item.isDirectory) walk(item, depth + 1)
+                    else if (item.isFile) {
+                        val name = item.name ?: return@forEach
+                        val extension = name.substringAfterLast(".", "").lowercase()
+                        if (item.type?.startsWith("audio/") == true || extension in extensions)
+                            found[item.uri.toString()] = item.uri to name
+                    }
+                }
+            }
+            try {
+                val root = DocumentFile.fromTreeUri(this, rootUri) ?: error("Dossier SD inaccessible")
+                walk(root, 0)
+                runOnUiThread {
+                    var added = 0
+                    found.values.forEach { (uri, name) ->
+                        if (!tracks.contains(uri)) {
+                            tracks.add(uri)
+                            names.add(name)
+                            playlists.getOrPut(activePlaylistName) { linkedSetOf() }.add(uri.toString())
+                            added++
+                        }
+                    }
+                    if (added > 0) {
+                        saveLibrary()
+                        refreshTracks()
+                        refreshUniversPage()
+                    }
+                    if (forceMessage || added > 0) {
+                        status.text = if (added > 0) "$added nouveau(x) son(s) détecté(s) sur la SD · aucun fichier copié · ajoutés à « $activePlaylistName »"
+                            else "Dossier musical vérifié · aucun nouveau son · fichiers lus directement depuis leur emplacement."
+                    }
+                    scanningMusicFolder = false
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    scanningMusicFolder = false
+                    status.text = "Analyse du dossier musical impossible : ${e.message ?: "accès SD à renouveler"}"
+                }
+            }
+        }
+    }
+
     private fun chooseAudio() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -1132,6 +1210,13 @@ class MainActivity : Activity() {
         if (requestCode == REQUEST_EXPORT_JSON) { data.data?.let { writeLibraryJson(it) }; return }
         if (requestCode == REQUEST_IMPORT_JSON) { data.data?.let { readLibraryJson(it) }; return }
         if (requestCode == REQUEST_EXPORT_AUDIO_FOLDER) { data.data?.let { exportAudioToFolder(it) }; return }
+        if (requestCode == REQUEST_MUSIC_FOLDER) { data.data?.let { uri ->
+            try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
+            musicFolderUri = uri
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_MUSIC_FOLDER, uri.toString()).apply()
+            status.text = "Dossier musical mémorisé · les nouveaux sons seront détectés sans copie."
+            scanWatchedMusicFolder(forceMessage = true)
+        }; return }
         if (requestCode == REQUEST_DOWNLOAD_FOLDER) { data.data?.let { uri ->
             try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) } catch (_: Exception) {}
             downloadFolderUri = uri
@@ -1262,14 +1347,19 @@ class MainActivity : Activity() {
             status.text = "Le lecteur se connecte encore…"
             return
         }
+        val playlistIndexes = if (filter == FILTER_PLAYLIST) tracks.indices.filter {
+            playlists[activePlaylistName]?.contains(tracks[it].toString()) == true
+        } else tracks.indices.toList()
+        val queueIndexes = if (index in playlistIndexes) playlistIndexes else tracks.indices.toList()
+        val queuePosition = queueIndexes.indexOf(index).coerceAtLeast(0)
         currentIndex = index
-        val items = tracks.indices.map { i ->
+        val items = queueIndexes.map { i ->
             MediaItem.Builder()
                 .setUri(tracks[i])
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(names[i]).setArtist("LeafSound").build())
                 .build()
         }
-        mediaController.setMediaItems(items, index, 0L)
+        mediaController.setMediaItems(items, queuePosition, 0L)
         mediaController.prepare()
         mediaController.play()
         status.text = "Lecture : " + names[index]
@@ -1387,6 +1477,7 @@ class MainActivity : Activity() {
         private const val REQUEST_IMPORT_JSON = 4104
         private const val REQUEST_EXPORT_AUDIO_FOLDER = 4105
         private const val REQUEST_DOWNLOAD_FOLDER = 4106
+        private const val REQUEST_MUSIC_FOLDER = 4107
         private const val PREFS = "leafsound_library"
         private const val KEY_URIS = "uris"
         private const val KEY_NAMES = "names"
@@ -1398,6 +1489,7 @@ class MainActivity : Activity() {
         private const val KEY_CATEGORY_ORDER = "music_category_order"
         private const val KEY_ACTIVE_CATEGORY = "active_category"
         private const val KEY_DOWNLOAD_FOLDER = "download_folder_uri"
+        private const val KEY_MUSIC_FOLDER = "music_folder_uri"
         private const val KEY_THEME = "leaf_theme"
         private const val KEY_LAST_WEB = "last_web_url"
         private const val KEY_BOOKMARKS = "browser_bookmarks"
