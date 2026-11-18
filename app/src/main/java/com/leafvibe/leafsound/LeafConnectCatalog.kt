@@ -137,7 +137,7 @@ object LeafConnectCatalog {
                 }
                 open.textSize = 13f
                 row.addView(open, LinearLayout.LayoutParams(0, -2, 1f))
-                row.addView(action(activity, "⋮") { manageItem(activity, item, services) { render() } })
+                row.addView(action(activity, "⋮") { manageItem(activity, item, services, { url -> dialog.dismiss(); onOpen(url) }) { render() } })
                 list.addView(row)
             }
             page.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -152,7 +152,7 @@ object LeafConnectCatalog {
         dialog.window?.setLayout(-1, -1)
     }
 
-    private fun manageItem(activity: Activity, item: JSONObject, services: JSONArray, changed: () -> Unit) {
+    private fun manageItem(activity: Activity, item: JSONObject, services: JSONArray, onOpen: (String) -> Unit, changed: () -> Unit) {
         val choices = arrayOf(
             "Ouvrir dans LeafSound",
             if (item.optBoolean("favorite")) "Retirer des favoris" else "Ajouter aux favoris",
@@ -165,10 +165,7 @@ object LeafConnectCatalog {
             when (choice) {
                 0 -> {
                     val url = item.optString("url")
-                    if (url.startsWith("https://")) {
-                        // The caller's service tile performs the actual open action.
-                        item.put("openRequested", true)
-                    }
+                    if (url.startsWith("https://") && !Uri.parse(url).host.isNullOrBlank()) onOpen(url)
                 }
                 1 -> item.put("favorite", !item.optBoolean("favorite"))
                 2 -> item.put("hidden", !item.optBoolean("hidden"))
