@@ -297,7 +297,7 @@ class MainActivity : Activity() {
         val actions = arrayOf("Créer un univers", "Parcourir les univers", "Renommer l'univers actif", "Supprimer l'univers actif", "Affecter des morceaux")
         AlertDialog.Builder(this).setTitle("Univers musicaux").setItems(actions) { _, choice ->
             when (choice) {
-                0 -> editCategory("Créer un univers", "", "🎵") { name, _ ->
+                0 -> editCategory("Créer un univers", "", "🎵") { name, emoji ->
                     if (name.isNotBlank() && !categories.containsKey(name)) {
                         categories[name] = linkedSetOf(); categoryIcons[name] = emoji.ifBlank { "🎵" }; activeCategoryName = name
                         saveLibrary(); refreshTracks()
