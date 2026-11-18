@@ -96,7 +96,7 @@ class PlaybackService : MediaSessionService() {
             val uri = values.optString(i)
             val title = uriToName[uri] ?: continue
             items.add(MediaItem.Builder().setUri(uri).setMediaMetadata(
-                MediaMetadata.Builder().setTitle(title).setArtist("LeafSound · Playlist · $nextName").build()
+                MediaMetadata.Builder().setTitle(title).setArtist(if (prefs.getBoolean("notification_show_playlist", true)) "LeafSound · Playlist · $nextName" else "LeafSound").build()
             ).build())
         }
         if (items.isEmpty()) return
