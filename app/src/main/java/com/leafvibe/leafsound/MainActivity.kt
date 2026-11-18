@@ -59,6 +59,7 @@ class MainActivity : Activity() {
     private val favorites = linkedSetOf<String>()
     private val playlists = linkedMapOf<String, LinkedHashSet<String>>()
     private val categories = linkedMapOf<String, LinkedHashSet<String>>()
+    private val categoryIcons = linkedMapOf<String, String>()
     private var activeCategoryName = ""
     private var browserDialog: Dialog? = null
     private var downloadFolderUri: Uri? = null
@@ -184,7 +185,7 @@ class MainActivity : Activity() {
         root.addView(actionButton("▦ Gérer les univers musicaux") { manageCategories() })
         val universStrip = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         universStrip.addView(actionButton("Tout") { setFilter(FILTER_ALL) }, weightParams())
-        categories.keys.take(4).forEach { name -> universStrip.addView(actionButton(name) { playCategory(name) }, weightParams()) }
+        categories.keys.take(4).forEach { name -> universStrip.addView(actionButton((categoryIcons[name] ?: "🎵") + " " + name) { playCategory(name) }, weightParams()) }
         root.addView(universStrip)
 
         val controls = LinearLayout(this).apply {
@@ -292,7 +293,7 @@ class MainActivity : Activity() {
             when (choice) {
                 0 -> editCategory("Créer un univers", "", "🎵") { name, _ ->
                     if (name.isNotBlank() && !categories.containsKey(name)) {
-                        categories[name] = linkedSetOf(); activeCategoryName = name
+                        categories[name] = linkedSetOf(); categoryIcons[name] = emoji.ifBlank { "🎵" }; activeCategoryName = name
                         saveLibrary(); refreshTracks()
                     }
                 }
@@ -306,7 +307,8 @@ class MainActivity : Activity() {
                 2 -> if (activeCategoryName.isNotBlank()) editCategory("Renommer", activeCategoryName, "🎵") { name, _ ->
                     if (name.isNotBlank() && (name == activeCategoryName || !categories.containsKey(name))) {
                         val values = categories.remove(activeCategoryName) ?: linkedSetOf()
-                        categories[name] = values; activeCategoryName = name
+                        val categoryEmoji = categoryIcons.remove(activeCategoryName) ?: "🎵"
+                        categories[name] = values; categoryIcons[name] = categoryEmoji; activeCategoryName = name
                         if (filter.startsWith(CATEGORY_PREFIX)) filter = CATEGORY_PREFIX + name
                         saveLibrary(); refreshTracks()
                     }
@@ -314,7 +316,7 @@ class MainActivity : Activity() {
                 3 -> if (activeCategoryName.isNotBlank()) AlertDialog.Builder(this)
                     .setMessage("Supprimer cet univers ? Les morceaux et playlists restent conservés.")
                     .setNegativeButton("Annuler", null).setPositiveButton("Supprimer") { _, _ ->
-                        categories.remove(activeCategoryName); activeCategoryName = categories.keys.firstOrNull().orEmpty()
+                        categories.remove(activeCategoryName); categoryIcons.remove(activeCategoryName); activeCategoryName = categories.keys.firstOrNull().orEmpty()
                         if (filter.startsWith(CATEGORY_PREFIX)) filter = FILTER_ALL
                         saveLibrary(); refreshTracks()
                     }.show()
@@ -562,6 +564,9 @@ class MainActivity : Activity() {
         val categoryJson = JSONObject()
         categories.forEach { (name, values) -> categoryJson.put(name, JSONArray(values)) }
         root.put("categories", categoryJson)
+        val categoryEmojiJson = JSONObject()
+        categoryIcons.forEach { (name, emoji) -> categoryEmojiJson.put(name, emoji) }
+        root.put("categoryIcons", categoryEmojiJson)
         root.put("activeCategory", activeCategoryName)
         return root
     }
@@ -630,6 +635,8 @@ class MainActivity : Activity() {
                     if (importedKeys.containsKey(key)) destination.add(key)
                 }
             }
+            val importedIcons = root.optJSONObject("categoryIcons") ?: JSONObject()
+            importedIcons.keys().forEach { name -> categoryIcons[name] = importedIcons.optString(name, "🎵") }
             val importedActiveCategory = root.optString("activeCategory")
             if (categories.containsKey(importedActiveCategory)) activeCategoryName = importedActiveCategory
             val requestedActive = root.optString("activePlaylist")
@@ -783,7 +790,7 @@ class MainActivity : Activity() {
                     filter.startsWith(CATEGORY_PREFIX) -> "Cet univers ne contient aucun morceau."
                     else -> "Aucun titre. Utilise « Ajouter des musiques »."
                 }
-                setTextColor(Color.LTGRAY)
+                setTextColor(LeafColour.WALNUT)
                 setPadding(0, 12, 0, 12)
             })
             return
@@ -798,7 +805,7 @@ class MainActivity : Activity() {
             val title = TextView(this).apply {
                 text = (if (index == currentIndex) "♫  " else "♪  ") + names[index]
                 textSize = 14f
-                setTextColor(if (index == currentIndex) Color.rgb(120, 220, 160) else Color.WHITE)
+                setTextColor(if (index == currentIndex) LeafColour.OASIS else LeafColour.WALNUT)
                 setPadding(8, 12, 4, 12)
                 setOnClickListener { play(index) }
             }
@@ -817,7 +824,7 @@ class MainActivity : Activity() {
             line.addView(actionButton("▦") { assignTrackToCategory(index) })
             line.addView(actionButton("✕") { removeTrack(index) })
             tracksBox.addView(line)
-            tracksBox.addView(View(this).apply { setBackgroundColor(Color.DKGRAY) },
+            tracksBox.addView(View(this).apply { setBackgroundColor(LeafColour.SAND_BROWN) },
                 LinearLayout.LayoutParams(-1, 1))
         }
     }
@@ -911,6 +918,12 @@ class MainActivity : Activity() {
             val obj = JSONObject(rawCategories)
             obj.keys().forEach { name -> categories[name] = readStringArray(obj.optJSONArray(name)?.toString()).toCollection(linkedSetOf()) }
         } catch (_: Exception) {}
+        val rawCategoryIcons = prefs.getString(KEY_CATEGORY_ICONS, null)
+        if (!rawCategoryIcons.isNullOrBlank()) try {
+            val obj = JSONObject(rawCategoryIcons)
+            obj.keys().forEach { name -> categoryIcons[name] = obj.optString(name, "🎵") }
+        } catch (_: Exception) {}
+        categories.keys.forEach { categoryIcons.putIfAbsent(it, "🎵") }
         activeCategoryName = prefs.getString(KEY_ACTIVE_CATEGORY, null).orEmpty().takeIf { categories.containsKey(it) } ?: categories.keys.firstOrNull().orEmpty()
         downloadFolderUri = prefs.getString(KEY_DOWNLOAD_FOLDER, null)?.let { runCatching { Uri.parse(it) }.getOrNull() }
         val valid = tracks.map { it.toString() }.toSet()
@@ -934,10 +947,13 @@ class MainActivity : Activity() {
         playlists.forEach { (name, values) -> savedLists.put(name, JSONArray(values)) }
         val savedCategories = JSONObject()
         categories.forEach { (name, values) -> savedCategories.put(name, JSONArray(values)) }
+        val savedCategoryIcons = JSONObject()
+        categoryIcons.forEach { (name, emoji) -> savedCategoryIcons.put(name, emoji) }
         prefs.edit().putString(KEY_URIS, encode(tracks.map { it.toString() }))
             .putString(KEY_NAMES, encode(names)).putString(KEY_FAVORITES, encode(favorites))
             .putString(KEY_PLAYLISTS, savedLists.toString()).putString(KEY_ACTIVE_PLAYLIST, activePlaylistName)
-            .putString(KEY_CATEGORIES, savedCategories.toString()).putString(KEY_ACTIVE_CATEGORY, activeCategoryName).apply()
+            .putString(KEY_CATEGORIES, savedCategories.toString()).putString(KEY_CATEGORY_ICONS, savedCategoryIcons.toString())
+            .putString(KEY_ACTIVE_CATEGORY, activeCategoryName).apply()
     }
 
     override fun onDestroy() {
@@ -963,6 +979,7 @@ class MainActivity : Activity() {
         private const val KEY_PLAYLISTS = "playlists"
         private const val KEY_ACTIVE_PLAYLIST = "active_playlist"
         private const val KEY_CATEGORIES = "music_categories"
+        private const val KEY_CATEGORY_ICONS = "music_category_icons"
         private const val KEY_ACTIVE_CATEGORY = "active_category"
         private const val KEY_DOWNLOAD_FOLDER = "download_folder_uri"
         private const val KEY_LAST_WEB = "last_web_url"
