@@ -6,6 +6,14 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.content.ComponentName
 import android.content.Intent
+import android.app.DownloadManager
+import android.os.Environment
+import android.webkit.URLUtil
+import android.widget.Toast
+import androidx.documentfile.provider.DocumentFile
+import org.json.JSONObject
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -44,6 +52,7 @@ class MainActivity : Activity() {
     private var repeatScope = "none"
     private var lastQueueIndex = -1
     private var currentIndex = -1
+    private var pendingExportUri: Uri? = null
     private var filter = FILTER_ALL
     private val green = Color.rgb(34, 139, 87)
     private val dark = Color.rgb(20, 28, 24)
@@ -110,6 +119,14 @@ class MainActivity : Activity() {
             setPadding(0, 4, 0, 14)
         })
         root.addView(actionButton("＋ Ajouter des musiques") { chooseAudio() })
+        val transferActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        transferActions.addView(actionButton("Sauvegarde JSON") { exportLibraryJson() }, weightParams())
+        transferActions.addView(actionButton("Importer JSON") { importLibraryJson() }, weightParams())
+        root.addView(transferActions)
+        val fileActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fileActions.addView(actionButton("Exporter les audios") { chooseAudioExportFolder() }, weightParams())
+        fileActions.addView(actionButton("Télécharger") { downloadAudio() }, weightParams())
+        root.addView(fileActions)
         status = TextView(this).apply {
             text = "Connexion au lecteur…"
             textSize = 13f
@@ -240,6 +257,168 @@ class MainActivity : Activity() {
         }.setNegativeButton("Annuler", null).show()
     }
 
+    private fun exportLibraryJson() {
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+            putExtra(Intent.EXTRA_TITLE, "LeafSound-sauvegarde.json")
+        }
+        startActivityForResult(intent, REQUEST_EXPORT_JSON)
+    }
+
+    private fun importLibraryJson() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+        }
+        startActivityForResult(intent, REQUEST_IMPORT_JSON)
+    }
+
+    private fun buildBackupJson(): JSONObject {
+        val root = JSONObject()
+        root.put("format", "LeafSoundBackup")
+        root.put("schemaVersion", 1)
+        root.put("exportedAt", System.currentTimeMillis())
+        val items = JSONArray()
+        tracks.forEachIndexed { index, uri ->
+            items.put(JSONObject().put("uri", uri.toString()).put("name", names.getOrNull(index) ?: queryDisplayName(uri)))
+        }
+        root.put("tracks", items)
+        root.put("favorites", JSONArray(favorites))
+        val lists = JSONObject()
+        playlists.forEach { (name, values) -> lists.put(name, JSONArray(values)) }
+        root.put("playlists", lists)
+        root.put("activePlaylist", activePlaylistName)
+        return root
+    }
+
+    private fun writeLibraryJson(uri: Uri) {
+        try {
+            contentResolver.openOutputStream(uri, "wt")?.bufferedWriter(Charsets.UTF_8)?.use {
+                it.write(buildBackupJson().toString(2))
+            } ?: throw IllegalStateException("Impossible d'ouvrir le fichier de destination")
+            status.text = "Sauvegarde JSON exportée. Les fichiers audio sont exportés séparément."
+            Toast.makeText(this, "Sauvegarde LeafSound créée", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            status.text = "Échec de l'export JSON : " + (e.message ?: "erreur")
+        }
+    }
+
+    private fun readLibraryJson(uri: Uri) {
+        try {
+            val raw = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                ?: throw IllegalStateException("Fichier illisible")
+            val root = JSONObject(raw)
+            require(root.optString("format") == "LeafSoundBackup") { "Ce fichier n'est pas une sauvegarde LeafSound." }
+            require(root.optInt("schemaVersion", 0) == 1) { "Version de sauvegarde non prise en charge." }
+            var added = 0
+            val importedKeys = linkedMapOf<String, String>()
+            val array = root.optJSONArray("tracks") ?: JSONArray()
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val value = item.optString("uri")
+                if (value.isBlank()) continue
+                val trackUri = Uri.parse(value)
+                try {
+                    contentResolver.openFileDescriptor(trackUri, "r")?.close()
+                    if (!tracks.contains(trackUri)) {
+                        tracks.add(trackUri)
+                        names.add(item.optString("name").ifBlank { queryDisplayName(trackUri) })
+                        added++
+                    }
+                    importedKeys[value] = value
+                } catch (_: Exception) {
+                    // SAF permissions are device-specific; inaccessible audio is not silently added.
+                }
+            }
+            val importedFavorites = root.optJSONArray("favorites") ?: JSONArray()
+            for (i in 0 until importedFavorites.length()) {
+                val key = importedFavorites.optString(i)
+                if (importedKeys.containsKey(key)) favorites.add(key)
+            }
+            val importedLists = root.optJSONObject("playlists") ?: JSONObject()
+            val keys = importedLists.keys()
+            while (keys.hasNext()) {
+                val name = keys.next()
+                val values = importedLists.optJSONArray(name) ?: JSONArray()
+                val destination = playlists.getOrPut(name) { linkedSetOf() }
+                for (i in 0 until values.length()) {
+                    val key = values.optString(i)
+                    if (importedKeys.containsKey(key)) destination.add(key)
+                }
+            }
+            val requestedActive = root.optString("activePlaylist")
+            if (playlists.containsKey(requestedActive)) activePlaylistName = requestedActive
+            saveLibrary()
+            refreshTracks()
+            status.text = "Import JSON terminé : $added fichier(s) audio retrouvé(s). Les URI protégées par Android doivent être réautorisées si elles viennent d'un autre appareil."
+        } catch (e: Exception) {
+            status.text = "Import JSON impossible : " + (e.message ?: "fichier invalide")
+        }
+    }
+
+    private fun chooseAudioExportFolder() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+        startActivityForResult(intent, REQUEST_EXPORT_AUDIO_FOLDER)
+    }
+
+    private fun exportAudioToFolder(treeUri: Uri) {
+        try {
+            contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            val folder = DocumentFile.fromTreeUri(this, treeUri) ?: throw IllegalStateException("Dossier inaccessible")
+            var copied = 0
+            var failed = 0
+            tracks.forEachIndexed { index, source ->
+                try {
+                    val display = names.getOrNull(index) ?: "audio-$index"
+                    val safeName = display.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "audio-$index" }
+                    val mime = contentResolver.getType(source) ?: "audio/mpeg"
+                    val target = folder.createFile(mime, safeName) ?: throw IllegalStateException("Création impossible")
+                    contentResolver.openInputStream(source).use { input ->
+                        requireNotNull(input) { "Lecture impossible" }
+                        contentResolver.openOutputStream(target.uri, "w").use { output ->
+                            requireNotNull(output) { "Écriture impossible" }
+                            input.copyTo(output)
+                        }
+                    }
+                    copied++
+                } catch (_: Exception) { failed++ }
+            }
+            status.text = "Export audio terminé : $copied copié(s), $failed échec(s). Les originaux sont conservés."
+        } catch (e: Exception) {
+            status.text = "Export audio impossible : " + (e.message ?: "erreur")
+        }
+    }
+
+    private fun downloadAudio() {
+        val field = EditText(this).apply {
+            hint = "https://…/musique.mp3"
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
+        }
+        AlertDialog.Builder(this).setTitle("Télécharger un fichier audio autorisé")
+            .setMessage("Indique un lien direct vers un fichier audio que tu as le droit de télécharger. Les flux Spotify/Deezer et contenus protégés ne sont pas pris en charge.")
+            .setView(field).setNegativeButton("Annuler", null)
+            .setPositiveButton("Télécharger") { _, _ ->
+                val link = field.text.toString().trim()
+                try {
+                    val uri = Uri.parse(link)
+                    require(uri.scheme == "https" && !uri.host.isNullOrBlank()) { "Utilise un lien HTTPS direct." }
+                    val request = DownloadManager.Request(uri)
+                        .setTitle(URLUtil.guessFileName(link, null, null))
+                        .setDescription("Téléchargement LeafSound")
+                        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                        .setDestinationInExternalPublicDir(Environment.DIRECTORY_MUSIC, "LeafSound/" + URLUtil.guessFileName(link, null, null))
+                        .setAllowedOverMetered(true).setAllowedOverRoaming(false)
+                    val manager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+                    manager.enqueue(request)
+                    status.text = "Téléchargement lancé. Le fichier sera dans Musique/LeafSound."
+                } catch (e: Exception) {
+                    status.text = "Téléchargement refusé : " + (e.message ?: "lien invalide")
+                }
+            }.show()
+    }
+
     private fun chooseAudio() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -252,7 +431,11 @@ class MainActivity : Activity() {
     @Deprecated("Use Activity Result API in a later UI refinement")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_AUDIO || resultCode != RESULT_OK || data == null) return
+        if (resultCode != RESULT_OK || data == null) return
+        if (requestCode == REQUEST_EXPORT_JSON) { data.data?.let { writeLibraryJson(it) }; return }
+        if (requestCode == REQUEST_IMPORT_JSON) { data.data?.let { readLibraryJson(it) }; return }
+        if (requestCode == REQUEST_EXPORT_AUDIO_FOLDER) { data.data?.let { exportAudioToFolder(it) }; return }
+        if (requestCode != REQUEST_AUDIO) return
         val selected = mutableListOf<Uri>()
         data.clipData?.let { clip ->
             for (i in 0 until clip.itemCount) selected.add(clip.getItemAt(i).uri)
@@ -461,6 +644,9 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_AUDIO = 4101
         private const val REQUEST_NOTIFICATIONS = 4102
+        private const val REQUEST_EXPORT_JSON = 4103
+        private const val REQUEST_IMPORT_JSON = 4104
+        private const val REQUEST_EXPORT_AUDIO_FOLDER = 4105
         private const val PREFS = "leafsound_library"
         private const val KEY_URIS = "uris"
         private const val KEY_NAMES = "names"
