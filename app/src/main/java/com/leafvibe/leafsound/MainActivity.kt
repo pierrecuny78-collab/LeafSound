@@ -367,6 +367,7 @@ class MainActivity : Activity() {
         }
         p.setMediaItems(queue, 0, 0L); p.prepare(); p.play()
         currentIndex = indexes.first(); lastQueueIndex = 0; activeCategoryName = category
+        saveLibrary()
         status.text = "Lecture de l'univers : $category"
     }
 
@@ -410,6 +411,23 @@ class MainActivity : Activity() {
                 }
             }
             webChromeClient = WebChromeClient()
+            var startX = 0f
+            var startY = 0f
+            setOnTouchListener { _, event ->
+                when (event.action) {
+                    android.view.MotionEvent.ACTION_DOWN -> { startX = event.x; startY = event.y; false }
+                    android.view.MotionEvent.ACTION_UP -> {
+                        val edge = 24 * resources.displayMetrics.density
+                        val dx = event.x - startX
+                        val dy = kotlin.math.abs(event.y - startY)
+                        if (startX <= edge && dx > 100 * resources.displayMetrics.density &&
+                            dy < 70 * resources.displayMetrics.density && canGoBack()) {
+                            goBack(); true
+                        } else false
+                    }
+                    else -> false
+                }
+            }
             setDownloadListener(DownloadListener { url, agent, disposition, mime, _ ->
                 val uri = Uri.parse(url)
                 if (uri.scheme == "https") {
@@ -459,7 +477,10 @@ class MainActivity : Activity() {
                     requireNotNull(output) { "Écriture impossible" }
                     connection.inputStream.use { input -> input.copyTo(output) }
                 }
-                runOnUiThread { status.text = "Téléchargement enregistré sur la SD : $filename" }
+                runOnUiThread {
+                    if (!tracks.contains(file.uri)) { tracks.add(file.uri); names.add(filename); saveLibrary(); refreshTracks() }
+                    status.text = "Téléchargement enregistré sur la SD et ajouté à LeafSound : $filename"
+                }
             } catch (e: Exception) {
                 runOnUiThread { status.text = "Téléchargement impossible : ${e.message ?: "erreur"}" }
             } finally { connection?.disconnect(); pendingDownload = null }
