@@ -56,7 +56,8 @@ class MainActivity : Activity() {
     private var playerListener: Player.Listener? = null
     private lateinit var tracksBox: LinearLayout
     private lateinit var status: TextView
-    private lateinit var searchField: EditText\n    private var selectedPlaylistButton: Button? = null
+    private lateinit var searchField: EditText
+    private var selectedPlaylistButton: Button? = null
     private var searchQuery = ""
     private val tracks = mutableListOf<Uri>()
     private val names = mutableListOf<String>()
@@ -230,7 +231,8 @@ class MainActivity : Activity() {
             textSize = 15f
             setTextColor(LeafColour.WALNUT)
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        selectedPlaylistButton = actionButton("♫ " + activePlaylistName + "  ▾") { chooseActivePlaylist() }\n        selectedPlaylist.addView(selectedPlaylistButton)
+        selectedPlaylistButton = actionButton("♫ " + activePlaylistName + "  ▾") { chooseActivePlaylist() }
+        selectedPlaylist.addView(selectedPlaylistButton)
         selectedPlaylist.addView(actionButton("⚙ Paramètres") { showMusicSettings() })
         page.addView(selectedPlaylist)
         page.addView(actionButton("＋ Ajouter des musiques à la bibliothèque") { chooseAudio() })
@@ -389,7 +391,8 @@ class MainActivity : Activity() {
         currentPage = index.coerceIn(0, pageFlipper.childCount - 1)
         pageFlipper.displayedChild = currentPage
         if (::status.isInitialized) status.text = pageTitles[currentPage] + "  ·  " + (currentPage + 1) + "/" + pageTitles.size
-        if (currentPage == 1) refreshUniversPage()\n        if (currentPage == 0 && ::searchField.isInitialized) refreshTracks()
+        if (currentPage == 1) refreshUniversPage()
+        if (currentPage == 0 && ::searchField.isInitialized) refreshTracks()
     }
 
     private fun weightParams() = LinearLayout.LayoutParams(0, -2, 1f).apply {
@@ -458,7 +461,8 @@ class MainActivity : Activity() {
         val keys = playlists[name].orEmpty()
         val titles = tracks.indices.filter { keys.contains(tracks[it].toString()) }
             .map { names[it] }
-        val message = if (titles.isEmpty()) "Cette playlist est vide." else titles.mapIndexed { i, title -> "${i + 1}. $title" }.joinToString("\\n")
+        val message = if (titles.isEmpty()) "Cette playlist est vide." else titles.mapIndexed { i, title -> "${i + 1}. $title" }.joinToString("\
+")
         AlertDialog.Builder(this).setTitle("$name · ${titles.size} morceau(x)")
             .setMessage(message).setPositiveButton("Sélectionner") { _, _ ->
                 activePlaylistName = name
@@ -1073,7 +1077,9 @@ class MainActivity : Activity() {
             }
             matchesFilter && names[index].lowercase().contains(searchQuery)
         }
-        val sortMode = getSharedPreferences(PREFS, MODE_PRIVATE).getInt("track_sort", 2)\n        val orderedVisible = when (sortMode) { 0 -> visible.sortedBy { names[it].lowercase() }; 1 -> visible.sortedByDescending { names[it].lowercase() }; else -> visible }\n        if (orderedVisible.isEmpty()) {
+        val sortMode = getSharedPreferences(PREFS, MODE_PRIVATE).getInt("track_sort", 2)
+        val orderedVisible = when (sortMode) { 0 -> visible.sortedBy { names[it].lowercase() }; 1 -> visible.sortedByDescending { names[it].lowercase() }; else -> visible }
+        if (orderedVisible.isEmpty()) {
             tracksBox.addView(TextView(this).apply {
                 text = when {
                     filter == FILTER_FAVORITES -> "Aucun favori. Utilise le cœur à côté d'un titre."
