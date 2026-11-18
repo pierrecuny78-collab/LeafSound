@@ -9,9 +9,12 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.text.Editable
+import android.text.TextWatcher
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -26,6 +29,8 @@ class MainActivity : Activity() {
     private var playerListener: Player.Listener? = null
     private lateinit var tracksBox: LinearLayout
     private lateinit var status: TextView
+    private lateinit var searchField: EditText
+    private var searchQuery = ""
     private val tracks = mutableListOf<Uri>()
     private val names = mutableListOf<String>()
     private val favorites = linkedSetOf<String>()
@@ -93,6 +98,22 @@ class MainActivity : Activity() {
             setPadding(0, 12, 0, 8)
         }
         root.addView(status)
+        searchField = EditText(this).apply {
+            hint = "Rechercher un titre…"
+            setHintTextColor(Color.LTGRAY)
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            singleLine = true
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    searchQuery = s?.toString()?.trim()?.lowercase() ?: ""
+                    refreshTracks()
+                }
+                override fun afterTextChanged(s: Editable?) {}
+            })
+        }
+        root.addView(searchField)
 
         val filters = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         filters.addView(actionButton("Tout") { setFilter(FILTER_ALL) }, weightParams())
@@ -108,6 +129,20 @@ class MainActivity : Activity() {
         controls.addView(actionButton("▶ / ❚❚") { togglePlayback() }, weightParams())
         controls.addView(actionButton("⏭") { next() }, weightParams())
         root.addView(controls)
+        val playbackModes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        playbackModes.addView(actionButton("Aléatoire") {
+            controller?.let { player ->
+                player.shuffleModeEnabled = !player.shuffleModeEnabled
+                status.text = "Lecture aléatoire : " + (if (player.shuffleModeEnabled) "activée" else "désactivée")
+            }
+        }, weightParams())
+        playbackModes.addView(actionButton("Répéter") {
+            controller?.let { player ->
+                player.repeatMode = if (player.repeatMode == Player.REPEAT_MODE_OFF) Player.REPEAT_MODE_ALL else Player.REPEAT_MODE_OFF
+                status.text = "Répétition : " + (if (player.repeatMode == Player.REPEAT_MODE_ALL) "activée" else "désactivée")
+            }
+        }, weightParams())
+        root.addView(playbackModes)
 
         root.addView(TextView(this).apply {
             text = "BIBLIOTHÈQUE"
@@ -190,11 +225,12 @@ class MainActivity : Activity() {
         if (!::tracksBox.isInitialized) return
         tracksBox.removeAllViews()
         val visible = tracks.indices.filter { index ->
-            when (filter) {
+            val matchesFilter = when (filter) {
                 FILTER_FAVORITES -> favorites.contains(tracks[index].toString())
                 FILTER_PLAYLIST -> playlist.contains(tracks[index].toString())
                 else -> true
             }
+            matchesFilter && names[index].lowercase().contains(searchQuery)
         }
         if (visible.isEmpty()) {
             tracksBox.addView(TextView(this).apply {
@@ -233,10 +269,27 @@ class MainActivity : Activity() {
                 saveLibrary()
                 refreshTracks()
             })
+            line.addView(actionButton("✕") { removeTrack(index) })
             tracksBox.addView(line)
             tracksBox.addView(View(this).apply { setBackgroundColor(Color.DKGRAY) },
                 LinearLayout.LayoutParams(-1, 1))
         }
+    }
+
+    private fun removeTrack(index: Int) {
+        if (index !in tracks.indices) return
+        val removed = tracks.removeAt(index)
+        names.removeAt(index)
+        favorites.remove(removed.toString())
+        playlist.remove(removed.toString())
+        if (currentIndex == index) {
+            controller?.stop()
+            controller?.clearMediaItems()
+            currentIndex = -1
+        } else if (currentIndex > index) currentIndex--
+        saveLibrary()
+        refreshTracks()
+        status.text = "Titre retiré de la bibliothèque (le fichier original est conservé)."
     }
 
     private fun play(index: Int) {
