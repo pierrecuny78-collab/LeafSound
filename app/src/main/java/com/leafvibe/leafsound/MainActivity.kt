@@ -134,6 +134,8 @@ class MainActivity : Activity() {
     private lateinit var pageFlipper: ViewFlipper
     private lateinit var universBox: LinearLayout
     private var currentPage = 0
+    private var swipeStartX = 0f
+    private var swipeStartY = 0f
     private val pageTitles = listOf("♫ Musique", "▦ Univers", "🌐 Sites", "⚙ Gestion")
 
     private fun buildInterface() {
@@ -186,20 +188,6 @@ class MainActivity : Activity() {
         }
         root.addView(status)
 
-        var downX = 0f
-        root.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> { downX = event.x; true }
-                MotionEvent.ACTION_UP -> {
-                    val delta = event.x - downX
-                    if (kotlin.math.abs(delta) > 75f) {
-                        if (delta < 0) showPage(currentPage + 1) else showPage(currentPage - 1)
-                    }
-                    true
-                }
-                else -> true
-            }
-        }
         setContentView(root)
         refreshTracks()
         refreshUniversPage()
@@ -286,8 +274,8 @@ class MainActivity : Activity() {
 
     private fun buildUniversPage(): View {
         val page = makePage()
-        addPageHeading(page, "Mes univers musicaux", "Retrouve tes classements et leurs morceaux dans cette fenêtre.")
-        page.addView(actionButton("＋ Créer / gérer les univers") { manageCategories(); refreshUniversPage() })
+        addPageHeading(page, "Mes univers / playlists", "Tes playlists regroupées dans une fenêtre dédiée.")
+        page.addView(actionButton("＋ Créer / gérer les playlists") { managePlaylists(); refreshUniversPage() })
         universBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         addScrollable(page, universBox)
         return page
@@ -296,32 +284,35 @@ class MainActivity : Activity() {
     private fun refreshUniversPage() {
         if (!::universBox.isInitialized) return
         universBox.removeAllViews()
-        if (categories.isEmpty()) {
+        if (playlists.isEmpty()) {
             universBox.addView(TextView(this).apply {
-                text = "Aucun univers pour le moment. Crée ton premier univers pour classer tes morceaux."
+                text = "Aucune playlist pour le moment. Crée ta première playlist."
                 setTextColor(LeafColour.WALNUT)
                 setPadding(8, 14, 8, 14)
             })
             return
         }
-        categories.keys.toList().forEach { name ->
-            val count = categories[name]?.size ?: 0
+        playlists.keys.toList().forEach { name ->
+            val count = playlists[name]?.size ?: 0
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(6, 8, 6, 8)
             }
             row.addView(TextView(this).apply {
-                text = (categoryIcons[name] ?: "🎵") + "  " + name + "  ·  " + count + " morceau(x)"
+                text = "♫  " + name + "  ·  " + count + " morceau(x)"
                 textSize = 16f
                 setTextColor(LeafColour.WALNUT)
             })
             val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             actions.addView(actionButton("Ouvrir") {
-                activeCategoryName = name
-                setFilter(CATEGORY_PREFIX + name)
+                activePlaylistName = name
+                setFilter(FILTER_PLAYLIST)
                 showPage(0)
             }, weightParams())
-            actions.addView(actionButton("▶ Lire") { playCategory(name) }, weightParams())
+            actions.addView(actionButton("▶ Lire") {
+                activePlaylistName = name
+                playActivePlaylist()
+            }, weightParams())
             row.addView(actions)
             universBox.addView(row)
             universBox.addView(View(this).apply { setBackgroundColor(LeafColour.SAND_BROWN) },
@@ -360,6 +351,23 @@ class MainActivity : Activity() {
                 .setPositiveButton("Compris", null).show()
         })
         return page
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                swipeStartX = event.x
+                swipeStartY = event.y
+            }
+            MotionEvent.ACTION_UP -> {
+                val dx = event.x - swipeStartX
+                val dy = event.y - swipeStartY
+                if (kotlin.math.abs(dx) > 90f && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.3f) {
+                    if (dx < 0) showPage(currentPage + 1) else showPage(currentPage - 1)
+                }
+            }
+        }
+        return super.dispatchTouchEvent(event)
     }
 
     private fun showPage(index: Int) {
