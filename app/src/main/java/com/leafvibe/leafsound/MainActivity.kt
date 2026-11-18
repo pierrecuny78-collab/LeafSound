@@ -29,6 +29,8 @@ import android.widget.TextView
 import android.app.Dialog
 import android.view.Window
 import android.view.KeyEvent
+import android.widget.ViewFlipper
+import android.view.MotionEvent
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebChromeClient
@@ -129,44 +131,111 @@ class MainActivity : Activity() {
         }, mainExecutor)
     }
 
+    private lateinit var pageFlipper: ViewFlipper
+    private lateinit var universBox: LinearLayout
+    private var currentPage = 0
+    private val pageTitles = listOf("♫ Musique", "▦ Univers", "🌐 Sites", "⚙ Gestion")
+
     private fun buildInterface() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(20, 24, 20, 16)
+            setPadding(12, 16, 12, 12)
             setBackgroundColor(dark)
         }
         root.addView(TextView(this).apply {
             text = "LeafSound"
-            textSize = 30f
+            textSize = 27f
             setTextColor(LeafColour.CREAM_DARK)
             setBackgroundColor(LeafColour.OASIS)
-            setPadding(12, 12, 12, 12)
+            setPadding(14, 12, 14, 12)
             gravity = Gravity.CENTER_VERTICAL
         })
-        root.addView(TextView(this).apply {
+        val subtitle = TextView(this).apply {
             text = "Ta musique. Ta bibliothèque. Ta liberté."
-            textSize = 14f
-            setTextColor(LeafColour.WALNUT)
-            setPadding(0, 4, 0, 14)
-        })
-        root.addView(actionButton("＋ Ajouter des musiques") { chooseAudio() })
-        root.addView(actionButton("🌐 LeafBrowser · sites & téléchargements") { openLeafBrowser() })
-        root.addView(actionButton("🎧 LeafSound Connect · services musicaux") { LeafConnectCatalog.show(this) { url -> openLeafBrowser(url) } })
-        val transferActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        transferActions.addView(actionButton("Sauvegarde JSON") { exportLibraryJson() }, weightParams())
-        transferActions.addView(actionButton("Importer JSON") { importLibraryJson() }, weightParams())
-        root.addView(transferActions)
-        val fileActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        fileActions.addView(actionButton("Exporter les audios") { chooseAudioExportFolder() }, weightParams())
-        fileActions.addView(actionButton("Télécharger") { downloadAudio() }, weightParams())
-        root.addView(fileActions)
-        status = TextView(this).apply {
-            text = "Connexion au lecteur…"
             textSize = 13f
             setTextColor(LeafColour.WALNUT)
-            setPadding(0, 12, 0, 8)
+            setPadding(4, 5, 4, 8)
+        }
+        root.addView(subtitle)
+
+        pageFlipper = ViewFlipper(this).apply {
+            setBackgroundColor(dark)
+            isMeasureAllChildren = false
+        }
+        pageFlipper.addView(buildMusicPage())
+        pageFlipper.addView(buildUniversPage())
+        pageFlipper.addView(buildSitesPage())
+        pageFlipper.addView(buildManagementPage())
+        root.addView(pageFlipper, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        val navigation = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        navigation.addView(actionButton("‹") { showPage(currentPage - 1) }, weightParams())
+        pageTitles.forEachIndexed { index, label ->
+            navigation.addView(actionButton(label) { showPage(index) }, weightParams())
+        }
+        navigation.addView(actionButton("›") { showPage(currentPage + 1) }, weightParams())
+        root.addView(navigation)
+        status = TextView(this).apply {
+            text = "Connexion au lecteur…"
+            textSize = 12f
+            setTextColor(LeafColour.WALNUT)
+            setPadding(4, 6, 4, 0)
         }
         root.addView(status)
+
+        var downX = 0f
+        root.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> { downX = event.x; true }
+                MotionEvent.ACTION_UP -> {
+                    val delta = event.x - downX
+                    if (kotlin.math.abs(delta) > 75f) {
+                        if (delta < 0) showPage(currentPage + 1) else showPage(currentPage - 1)
+                    }
+                    true
+                }
+                else -> true
+            }
+        }
+        setContentView(root)
+        refreshTracks()
+        refreshUniversPage()
+        showPage(0)
+    }
+
+    private fun makePage(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(4, 4, 4, 8)
+    }
+
+    private fun addPageHeading(page: LinearLayout, heading: String, description: String) {
+        page.addView(TextView(this).apply {
+            text = heading
+            textSize = 21f
+            setTextColor(LeafColour.OASIS)
+            setPadding(4, 8, 4, 2)
+        })
+        page.addView(TextView(this).apply {
+            text = description
+            textSize = 13f
+            setTextColor(LeafColour.WALNUT)
+            setPadding(4, 0, 4, 10)
+        })
+    }
+
+    private fun addScrollable(page: LinearLayout, content: View) {
+        val scroll = ScrollView(this)
+        scroll.addView(content)
+        page.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+    }
+
+    private fun buildMusicPage(): View {
+        val page = makePage()
+        addPageHeading(page, "Ma bibliothèque", "Tous tes morceaux, au même endroit.")
+        page.addView(actionButton("＋ Ajouter des musiques") { chooseAudio() })
         searchField = EditText(this).apply {
             hint = "Rechercher un titre…"
             setHintTextColor(LeafColour.SAND_BROWN)
@@ -182,23 +251,16 @@ class MainActivity : Activity() {
                 override fun afterTextChanged(s: Editable?) {}
             })
         }
-        root.addView(searchField)
-
+        page.addView(searchField)
         val filters = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         filters.addView(actionButton("Tout") { setFilter(FILTER_ALL) }, weightParams())
         filters.addView(actionButton("♥ Favoris") { setFilter(FILTER_FAVORITES) }, weightParams())
         filters.addView(actionButton("♫ Playlist") { setFilter(FILTER_PLAYLIST) }, weightParams())
-        root.addView(filters)
+        page.addView(filters)
         val playlistActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         playlistActions.addView(actionButton("＋ Gérer playlists") { managePlaylists() }, weightParams())
         playlistActions.addView(actionButton("▶ Lire playlist") { playActivePlaylist() }, weightParams())
-        root.addView(playlistActions)
-        root.addView(actionButton("▦ Gérer les univers musicaux") { manageCategories() })
-        val universStrip = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        universStrip.addView(actionButton("Tout") { setFilter(FILTER_ALL) }, weightParams())
-        categories.keys.take(4).forEach { name -> universStrip.addView(actionButton((categoryIcons[name] ?: "🎵") + " " + name) { playCategory(name) }, weightParams()) }
-        root.addView(universStrip)
-
+        page.addView(playlistActions)
         val controls = LinearLayout(this).apply {
             gravity = Gravity.CENTER
             orientation = LinearLayout.HORIZONTAL
@@ -206,30 +268,106 @@ class MainActivity : Activity() {
         controls.addView(actionButton("⏮") { previous() }, weightParams())
         controls.addView(actionButton("▶ / ❚❚") { togglePlayback() }, weightParams())
         controls.addView(actionButton("⏭") { next() }, weightParams())
-        root.addView(controls)
-        val playbackModes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        playbackModes.addView(actionButton("Aléatoire") {
+        page.addView(controls)
+        val modes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        modes.addView(actionButton("Aléatoire") {
             controller?.let { player ->
                 player.shuffleModeEnabled = !player.shuffleModeEnabled
                 status.text = "Lecture aléatoire : " + (if (player.shuffleModeEnabled) "activée" else "désactivée")
             }
         }, weightParams())
-        playbackModes.addView(actionButton("Répéter 1× à ∞") { chooseRepeat() }, weightParams())
-        playbackModes.addView(actionButton("🌙 Minuteur") { chooseSleepTimer() }, weightParams())
-        root.addView(playbackModes)
-
-        root.addView(TextView(this).apply {
-            text = "BIBLIOTHÈQUE"
-            textSize = 12f
-            setTextColor(Color.rgb(120, 205, 155))
-            setPadding(0, 16, 0, 8)
-        })
+        modes.addView(actionButton("Répéter") { chooseRepeat() }, weightParams())
+        modes.addView(actionButton("🌙 Minuteur") { chooseSleepTimer() }, weightParams())
+        page.addView(modes)
         tracksBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this)
-        scroll.addView(tracksBox)
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        setContentView(root)
-        refreshTracks()
+        addScrollable(page, tracksBox)
+        return page
+    }
+
+    private fun buildUniversPage(): View {
+        val page = makePage()
+        addPageHeading(page, "Mes univers musicaux", "Retrouve tes classements et leurs morceaux dans cette fenêtre.")
+        page.addView(actionButton("＋ Créer / gérer les univers") { manageCategories(); refreshUniversPage() })
+        universBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        addScrollable(page, universBox)
+        return page
+    }
+
+    private fun refreshUniversPage() {
+        if (!::universBox.isInitialized) return
+        universBox.removeAllViews()
+        if (categories.isEmpty()) {
+            universBox.addView(TextView(this).apply {
+                text = "Aucun univers pour le moment. Crée ton premier univers pour classer tes morceaux."
+                setTextColor(LeafColour.WALNUT)
+                setPadding(8, 14, 8, 14)
+            })
+            return
+        }
+        categories.keys.toList().forEach { name ->
+            val count = categories[name]?.size ?: 0
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(6, 8, 6, 8)
+            }
+            row.addView(TextView(this).apply {
+                text = (categoryIcons[name] ?: "🎵") + "  " + name + "  ·  " + count + " morceau(x)"
+                textSize = 16f
+                setTextColor(LeafColour.WALNUT)
+            })
+            val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            actions.addView(actionButton("Ouvrir") {
+                activeCategoryName = name
+                setFilter(CATEGORY_PREFIX + name)
+                showPage(0)
+            }, weightParams())
+            actions.addView(actionButton("▶ Lire") { playCategory(name) }, weightParams())
+            row.addView(actions)
+            universBox.addView(row)
+            universBox.addView(View(this).apply { setBackgroundColor(LeafColour.SAND_BROWN) },
+                LinearLayout.LayoutParams(-1, 1))
+        }
+    }
+
+    private fun buildSitesPage(): View {
+        val page = makePage()
+        addPageHeading(page, "Sites & services musicaux", "Accède à tes services sans mélanger cette partie avec ta bibliothèque.")
+        page.addView(actionButton("🌐 Ouvrir LeafBrowser") { openLeafBrowser() })
+        page.addView(actionButton("🎧 LeafSound Connect · catalogue") {
+            LeafConnectCatalog.show(this) { url -> openLeafBrowser(url) }
+        })
+        val info = TextView(this).apply {
+            text = "Retrouve ici les sites musicaux, les services de découverte, les ressources audio et les téléchargements autorisés."
+            textSize = 14f
+            setTextColor(LeafColour.WALNUT)
+            setPadding(8, 14, 8, 14)
+        }
+        page.addView(info)
+        return page
+    }
+
+    private fun buildManagementPage(): View {
+        val page = makePage()
+        addPageHeading(page, "Gestion & sauvegardes", "Importe, exporte et protège ta bibliothèque.")
+        page.addView(actionButton("Sauvegarder la bibliothèque (JSON)") { exportLibraryJson() })
+        page.addView(actionButton("Restaurer une sauvegarde (JSON)") { importLibraryJson() })
+        page.addView(actionButton("Exporter les fichiers audio") { chooseAudioExportFolder() })
+        page.addView(actionButton("Télécharger un fichier audio autorisé") { downloadAudio() })
+        page.addView(actionButton("LeafTracker · statistiques (préparation)") {
+            AlertDialog.Builder(this)
+                .setTitle("LeafTracker Connect")
+                .setMessage("LeafTracker n'est pas encore développé. La collecte et le partage seront ajoutés avec stockage local et autorisation explicite.")
+                .setPositiveButton("Compris", null).show()
+        })
+        return page
+    }
+
+    private fun showPage(index: Int) {
+        if (!::pageFlipper.isInitialized) return
+        currentPage = index.coerceIn(0, pageFlipper.childCount - 1)
+        pageFlipper.displayedChild = currentPage
+        if (::status.isInitialized) status.text = pageTitles[currentPage] + "  ·  " + (currentPage + 1) + "/" + pageTitles.size
+        if (currentPage == 1) refreshUniversPage()
     }
 
     private fun weightParams() = LinearLayout.LayoutParams(0, -2, 1f).apply {
