@@ -85,8 +85,8 @@ object LeafConnectCatalog {
             page.addView(TextView(activity).apply {
                 text = "LeafSound Connect"
                 textSize = 25f
-                setTextColor(LeafColour.CREAM_DARK)
-                setBackgroundColor(LeafColour.OASIS)
+                setTextColor(LeafColour.ON_PRIMARY)
+                setBackgroundColor(LeafColour.PRIMARY)
                 setPadding(14, 14, 14, 14)
             })
             page.addView(TextView(activity).apply {
@@ -247,8 +247,8 @@ object LeafConnectCatalog {
         Button(activity).apply {
             text = label
             isAllCaps = false
-            setTextColor(LeafColour.CREAM_DARK)
-            setBackgroundTintList(android.content.res.ColorStateList.valueOf(LeafColour.WALNUT))
+            setTextColor(LeafColour.ON_PRIMARY)
+            setBackgroundTintList(android.content.res.ColorStateList.valueOf(LeafColour.PRIMARY))
             setOnClickListener { click() }
         }
 }
