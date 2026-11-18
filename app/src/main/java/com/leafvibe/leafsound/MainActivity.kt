@@ -113,9 +113,11 @@ class MainActivity : Activity() {
                         }
                         lastQueueIndex = now
                         val artistLabel = mediaItem?.mediaMetadata?.artist?.toString().orEmpty()
-                        if (artistLabel.startsWith("LeafSound · Univers · ")) {
-                            activeCategoryName = artistLabel.removePrefix("LeafSound · Univers · ")
+                        if (artistLabel.startsWith("LeafSound · Playlist · ")) {
+                            activePlaylistName = artistLabel.removePrefix("LeafSound · Playlist · ")
+                            selectedPlaylistButton?.text = "♫ " + activePlaylistName + "  ▾"
                             saveLibrary()
+                            refreshTracks()
                         }
                         val activeUri = mediaItem?.localConfiguration?.uri
                         currentIndex = activeUri?.let { uri -> tracks.indexOf(uri) }?.takeIf { it >= 0 } ?: now
