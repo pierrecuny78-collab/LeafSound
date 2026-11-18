@@ -25,6 +25,10 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.media.AudioManager
+import android.media.AudioDeviceInfo
+import android.media.AudioDeviceCallback
+import android.provider.Settings
 import android.widget.HorizontalScrollView
 import android.widget.TextView
 import android.app.Dialog
@@ -60,6 +64,11 @@ class MainActivity : Activity() {
     private lateinit var searchField: EditText
     private var selectedPlaylistButton: Button? = null
     private var searchQuery = ""
+    private var categorySearchQuery = ""
+    private lateinit var categorySearchField: EditText
+    private var audioManager: AudioManager? = null
+    private var audioDeviceCallback: AudioDeviceCallback? = null
+    private var audioOutputStatus: TextView? = null
     private val tracks = mutableListOf<Uri>()
     private val names = mutableListOf<String>()
     private val favorites = linkedSetOf<String>()
@@ -101,7 +110,62 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        registerAudioDeviceMonitoring()
         scanWatchedMusicFolder()
+    }
+
+    override fun onPause() {
+        unregisterAudioDeviceMonitoring()
+        super.onPause()
+    }
+
+    private fun registerAudioDeviceMonitoring() {
+        if (audioDeviceCallback != null) return
+        audioManager = getSystemService(AUDIO_SERVICE) as? AudioManager
+        val manager = audioManager ?: return
+        audioDeviceCallback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) = updateAudioOutputStatus()
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) = updateAudioOutputStatus()
+        }
+        manager.registerAudioDeviceCallback(audioDeviceCallback, Handler(Looper.getMainLooper()))
+        updateAudioOutputStatus()
+    }
+
+    private fun unregisterAudioDeviceMonitoring() {
+        audioDeviceCallback?.let { callback -> audioManager?.unregisterAudioDeviceCallback(callback) }
+        audioDeviceCallback = null
+    }
+
+    private fun updateAudioOutputStatus() {
+        val manager = audioManager ?: return
+        val outputs = manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        val active = outputs.filter { device ->
+            device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                (Build.VERSION.SDK_INT >= 31 && (device.type == AudioDeviceInfo.TYPE_BLE_HEADSET || device.type == AudioDeviceInfo.TYPE_BLE_SPEAKER)) ||
+                device.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                device.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                device.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                device.type == AudioDeviceInfo.TYPE_USB_DEVICE
+        }
+        val label = when {
+            active.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP || it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO || (Build.VERSION.SDK_INT >= 31 && (it.type == AudioDeviceInfo.TYPE_BLE_HEADSET || it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER)) } -> "Bluetooth connecté"
+            active.any { it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET } -> "Casque filaire connecté"
+            active.any { it.type == AudioDeviceInfo.TYPE_USB_HEADSET || it.type == AudioDeviceInfo.TYPE_USB_DEVICE } -> "Audio USB connecté"
+            else -> "Haut-parleur du téléphone / sortie système"
+        }
+        audioOutputStatus?.text = "Sortie audio : $label"
+    }
+
+    private fun openAudioOutputSettings() {
+        val panelOpened = if (Build.VERSION.SDK_INT >= 29) runCatching {
+            startActivity(Intent(Settings.Panel.ACTION_MEDIA_OUTPUTS))
+            true
+        }.getOrDefault(false) else false
+        if (!panelOpened) {
+            runCatching { startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                .onFailure { status.text = "Ouvre les paramètres Bluetooth du téléphone pour choisir un périphérique." }
+        }
     }
 
     private fun connectPlaybackService() {
@@ -268,6 +332,14 @@ class MainActivity : Activity() {
             })
         }
         page.addView(searchField)
+        audioOutputStatus = TextView(this).apply {
+            text = "Sortie audio : détection en cours…"
+            textSize = 12f
+            setTextColor(LeafColour.WALNUT)
+            setPadding(4, 4, 4, 2)
+        }
+        page.addView(audioOutputStatus)
+        page.addView(actionButton("🎧 Sortie audio / Bluetooth") { openAudioOutputSettings() })
         val filters = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         filters.addView(actionButton("♥ Favoris") { setFilter(FILTER_FAVORITES) }, weightParams())
         filters.addView(actionButton("♫ Playlist actuelle") { setFilter(FILTER_PLAYLIST) }, weightParams())
@@ -302,6 +374,22 @@ class MainActivity : Activity() {
     private fun buildUniversPage(): View {
         val page = makePage()
         addPageHeading(page, "Playlists musicales", "Fais défiler tes playlists horizontalement, comme les catégories de LeafNotes.")
+        categorySearchField = EditText(this).apply {
+            hint = "Rechercher une playlist ou catégorie…"
+            setSingleLine(true)
+            textSize = 14f
+            setTextColor(LeafColour.TEXT)
+            setHintTextColor(LeafColour.BORDER)
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    categorySearchQuery = s?.toString()?.trim()?.lowercase().orEmpty()
+                    refreshUniversPage()
+                }
+                override fun afterTextChanged(s: Editable?) {}
+            })
+        }
+        page.addView(categorySearchField)
         val playlistTools = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         playlistTools.addView(actionButton("＋ Créer") { createPlaylist(); refreshUniversPage() }, weightParams())
         playlistTools.addView(actionButton("⚙ Gérer") { managePlaylists(); refreshUniversPage() }, weightParams())
@@ -329,7 +417,22 @@ class MainActivity : Activity() {
             return
         }
         val density = resources.displayMetrics.density
-        playlists.keys.toList().forEach { name ->
+        val visiblePlaylists = playlists.keys.filter { name ->
+            name.lowercase().contains(categorySearchQuery) ||
+                tracks.indices.any { index ->
+                    playlists[name]?.contains(tracks[index].toString()) == true &&
+                        names.getOrNull(index)?.lowercase()?.contains(categorySearchQuery) == true
+                }
+        }
+        if (visiblePlaylists.isEmpty()) {
+            universBox.addView(TextView(this).apply {
+                text = if (categorySearchQuery.isBlank()) "Aucune playlist. Crée ta première playlist." else "Aucune playlist ou catégorie ne correspond à « $categorySearchQuery »."
+                setTextColor(LeafColour.WALNUT)
+                setPadding(12, 18, 12, 18)
+            })
+            return
+        }
+        visiblePlaylists.forEach { name ->
             val count = playlists[name]?.size ?: 0
             val active = name == activePlaylistName
             val card = LinearLayout(this).apply {
@@ -599,7 +702,8 @@ class MainActivity : Activity() {
             "Tri des morceaux",
             "Sauvegarde et export",
             "Thèmes et apparence",
-            "Emplacements des fichiers"
+            "Emplacements des fichiers",
+            "Sortie audio / Bluetooth"
         )
         AlertDialog.Builder(this).setTitle("Paramètres LeafSound").setItems(options) { _, which ->
             when (which) {
@@ -612,6 +716,7 @@ class MainActivity : Activity() {
                 6 -> showPage(3)
                 7 -> showThemeSettings()
                 8 -> showStorageLocations()
+                9 -> openAudioOutputSettings()
             }
         }.show()
     }
