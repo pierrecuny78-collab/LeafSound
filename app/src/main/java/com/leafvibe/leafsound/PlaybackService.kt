@@ -1,5 +1,7 @@
 package com.leafvibe.leafsound
 
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -9,7 +11,10 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val player = ExoPlayer.Builder(this).build()
+        val player = ExoPlayer.Builder(this).build().apply {
+            setAudioAttributes(AudioAttributes.DEFAULT, true)
+            setWakeMode(C.WAKE_MODE_LOCAL)
+        }
         mediaSession = MediaSession.Builder(this, player).build()
     }
 
