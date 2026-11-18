@@ -24,6 +24,18 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.app.Dialog
+import android.view.Window
+import android.view.KeyEvent
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.webkit.WebChromeClient
+import android.webkit.DownloadListener
+import android.webkit.CookieManager
+import android.webkit.WebSettings
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
 import android.text.Editable
 import android.text.TextWatcher
 import androidx.media3.common.MediaItem
@@ -46,6 +58,12 @@ class MainActivity : Activity() {
     private val names = mutableListOf<String>()
     private val favorites = linkedSetOf<String>()
     private val playlists = linkedMapOf<String, LinkedHashSet<String>>()
+    private val categories = linkedMapOf<String, LinkedHashSet<String>>()
+    private var activeCategoryName = ""
+    private var browserDialog: Dialog? = null
+    private var downloadFolderUri: Uri? = null
+    private var pendingDownload: PendingDownload? = null
+    private val downloadExecutor = Executors.newSingleThreadExecutor()
     private var activePlaylistName = "Ma playlist"
     private var repeatLimit = 0
     private var repeatCount = 0
@@ -54,8 +72,8 @@ class MainActivity : Activity() {
     private var currentIndex = -1
     private var pendingExportUri: Uri? = null
     private var filter = FILTER_ALL
-    private val green = Color.rgb(34, 139, 87)
-    private val dark = Color.rgb(20, 28, 24)
+    private val green = LeafColour.OASIS
+    private val dark = LeafColour.CREAM_DARK
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,16 +127,19 @@ class MainActivity : Activity() {
         root.addView(TextView(this).apply {
             text = "LeafSound"
             textSize = 30f
-            setTextColor(Color.WHITE)
+            setTextColor(LeafColour.CREAM_DARK)
+            setBackgroundColor(LeafColour.OASIS)
+            setPadding(12, 12, 12, 12)
             gravity = Gravity.CENTER_VERTICAL
         })
         root.addView(TextView(this).apply {
             text = "Ta musique. Ta bibliothèque. Ta liberté."
             textSize = 14f
-            setTextColor(Color.LTGRAY)
+            setTextColor(LeafColour.WALNUT)
             setPadding(0, 4, 0, 14)
         })
         root.addView(actionButton("＋ Ajouter des musiques") { chooseAudio() })
+        root.addView(actionButton("🌐 LeafBrowser · sites & téléchargements") { openLeafBrowser() })
         val transferActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         transferActions.addView(actionButton("Sauvegarde JSON") { exportLibraryJson() }, weightParams())
         transferActions.addView(actionButton("Importer JSON") { importLibraryJson() }, weightParams())
@@ -130,14 +151,14 @@ class MainActivity : Activity() {
         status = TextView(this).apply {
             text = "Connexion au lecteur…"
             textSize = 13f
-            setTextColor(Color.LTGRAY)
+            setTextColor(LeafColour.WALNUT)
             setPadding(0, 12, 0, 8)
         }
         root.addView(status)
         searchField = EditText(this).apply {
             hint = "Rechercher un titre…"
-            setHintTextColor(Color.LTGRAY)
-            setTextColor(Color.WHITE)
+            setHintTextColor(LeafColour.SAND_BROWN)
+            setTextColor(LeafColour.WALNUT)
             textSize = 15f
             setSingleLine(true)
             addTextChangedListener(object : TextWatcher {
@@ -160,6 +181,11 @@ class MainActivity : Activity() {
         playlistActions.addView(actionButton("＋ Gérer playlists") { managePlaylists() }, weightParams())
         playlistActions.addView(actionButton("▶ Lire playlist") { playActivePlaylist() }, weightParams())
         root.addView(playlistActions)
+        root.addView(actionButton("▦ Gérer les univers musicaux") { manageCategories() })
+        val universStrip = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        universStrip.addView(actionButton("Tout") { setFilter(FILTER_ALL) }, weightParams())
+        categories.keys.take(4).forEach { name -> universStrip.addView(actionButton(name) { playCategory(name) }, weightParams()) }
+        root.addView(universStrip)
 
         val controls = LinearLayout(this).apply {
             gravity = Gravity.CENTER
@@ -202,8 +228,8 @@ class MainActivity : Activity() {
             text = label
             isAllCaps = false
             textSize = 13f
-            setTextColor(Color.WHITE)
-            setBackgroundTintList(android.content.res.ColorStateList.valueOf(green))
+            setTextColor(LeafColour.CREAM_DARK)
+            setBackgroundTintList(android.content.res.ColorStateList.valueOf(LeafColour.WALNUT))
             setOnClickListener { action() }
         }
 
@@ -257,6 +283,191 @@ class MainActivity : Activity() {
         }.setNegativeButton("Annuler", null).show()
     }
 
+
+    // A "univers" is a broad, user-created music space (Rock, Chill, Road, Jazz…).
+    // Playlists remain separate, named listening sequences.
+    private fun manageCategories() {
+        val actions = arrayOf("Créer un univers", "Parcourir les univers", "Renommer l'univers actif", "Supprimer l'univers actif", "Affecter des morceaux")
+        AlertDialog.Builder(this).setTitle("Univers musicaux").setItems(actions) { _, choice ->
+            when (choice) {
+                0 -> editCategory("Créer un univers", "", "🎵") { name, _ ->
+                    if (name.isNotBlank() && !categories.containsKey(name)) {
+                        categories[name] = linkedSetOf(); activeCategoryName = name
+                        saveLibrary(); refreshTracks()
+                    }
+                }
+                1 -> {
+                    val all = categories.keys.toTypedArray()
+                    if (all.isEmpty()) status.text = "Crée ton premier univers musical."
+                    else AlertDialog.Builder(this).setTitle("Choisir un univers").setItems(all) { _, i ->
+                        activeCategoryName = all[i]; filter = CATEGORY_PREFIX + activeCategoryName; refreshTracks()
+                    }.show()
+                }
+                2 -> if (activeCategoryName.isNotBlank()) editCategory("Renommer", activeCategoryName, "🎵") { name, _ ->
+                    if (name.isNotBlank() && (name == activeCategoryName || !categories.containsKey(name))) {
+                        val values = categories.remove(activeCategoryName) ?: linkedSetOf()
+                        categories[name] = values; activeCategoryName = name
+                        if (filter.startsWith(CATEGORY_PREFIX)) filter = CATEGORY_PREFIX + name
+                        saveLibrary(); refreshTracks()
+                    }
+                }
+                3 -> if (activeCategoryName.isNotBlank()) AlertDialog.Builder(this)
+                    .setMessage("Supprimer cet univers ? Les morceaux et playlists restent conservés.")
+                    .setNegativeButton("Annuler", null).setPositiveButton("Supprimer") { _, _ ->
+                        categories.remove(activeCategoryName); activeCategoryName = categories.keys.firstOrNull().orEmpty()
+                        if (filter.startsWith(CATEGORY_PREFIX)) filter = FILTER_ALL
+                        saveLibrary(); refreshTracks()
+                    }.show()
+                4 -> if (activeCategoryName.isNotBlank()) chooseCategoryTracks(activeCategoryName)
+            }
+        }.setNegativeButton("Fermer", null).show()
+    }
+
+    private fun editCategory(title: String, initial: String, emoji: String, done: (String, String) -> Unit) {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(18, 6, 18, 0) }
+        val name = EditText(this).apply { hint = "Nom : Rock, Chill, Voiture…"; setText(initial) }
+        val icon = EditText(this).apply { hint = "Emoji"; setText(emoji); setSingleLine(true) }
+        box.addView(name); box.addView(icon)
+        AlertDialog.Builder(this).setTitle(title).setView(box).setNegativeButton("Annuler", null)
+            .setPositiveButton("Enregistrer") { _, _ -> done(name.text.toString().trim(), icon.text.toString().trim()) }.show()
+    }
+
+    private fun chooseCategoryTracks(category: String) {
+        val labels = names.toTypedArray()
+        if (labels.isEmpty()) { status.text = "Ajoute d'abord des morceaux."; return }
+        val checked = BooleanArray(tracks.size) { categories[category]?.contains(tracks[it].toString()) == true }
+        AlertDialog.Builder(this).setTitle("Morceaux · $category")
+            .setMultiChoiceItems(labels, checked) { _, i, isChecked ->
+                val set = categories.getOrPut(category) { linkedSetOf() }
+                if (isChecked) set.add(tracks[i].toString()) else set.remove(tracks[i].toString())
+            }.setPositiveButton("Enregistrer") { _, _ -> saveLibrary(); refreshTracks() }
+            .setNegativeButton("Annuler", null).show()
+    }
+
+    private fun assignTrackToCategory(index: Int) {
+        if (categories.isEmpty()) { manageCategories(); return }
+        val labels = categories.keys.toTypedArray()
+        val checked = BooleanArray(labels.size) { categories[labels[it]]?.contains(tracks[index].toString()) == true }
+        AlertDialog.Builder(this).setTitle("Univers de « ${names[index]} »")
+            .setMultiChoiceItems(labels, checked) { _, i, yes ->
+                val set = categories.getOrPut(labels[i]) { linkedSetOf() }
+                if (yes) set.add(tracks[index].toString()) else set.remove(tracks[index].toString())
+            }.setPositiveButton("Enregistrer") { _, _ -> saveLibrary(); refreshTracks() }
+            .setNegativeButton("Annuler", null).show()
+    }
+
+    private fun playCategory(category: String) {
+        val indexes = tracks.indices.filter { categories[category]?.contains(tracks[it].toString()) == true }
+        if (indexes.isEmpty()) { status.text = "L'univers « $category » est vide."; return }
+        val p = controller ?: return
+        val queue = indexes.map { i ->
+            MediaItem.Builder().setUri(tracks[i]).setMediaMetadata(
+                MediaMetadata.Builder().setTitle(names[i]).setArtist("LeafSound · $category").build()
+            ).build()
+        }
+        p.setMediaItems(queue, 0, 0L); p.prepare(); p.play()
+        currentIndex = indexes.first(); lastQueueIndex = 0; activeCategoryName = category
+        status.text = "Lecture de l'univers : $category"
+    }
+
+    private fun openLeafBrowser() {
+        val dialog = Dialog(this)
+        val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(LeafColour.CREAM_DARK) }
+        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(6, 6, 6, 6); setBackgroundColor(LeafColour.OASIS) }
+        val address = EditText(this).apply {
+            hint = "Adresse du site légal (HTTPS)"
+            setSingleLine(true); textSize = 13f
+            setTextColor(LeafColour.WALNUT); setHintTextColor(LeafColour.SAND_BROWN)
+            setBackgroundColor(LeafColour.CREAM_DARK)
+        }
+        lateinit var browser: WebView
+        val open = actionButton("OK") {
+            var url = address.text.toString().trim()
+            if (url.isNotBlank()) {
+                if (!url.contains("://")) url = "https://$url"
+                val parsed = Uri.parse(url)
+                if (parsed.scheme == "https" && !parsed.host.isNullOrBlank()) {
+                    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_LAST_WEB, url).apply()
+                    browser.loadUrl(url)
+                } else status.text = "Adresse refusée : LeafBrowser utilise HTTPS."
+            }
+        }
+        bar.addView(address, LinearLayout.LayoutParams(0, -2, 1f)); bar.addView(open)
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        controls.addView(actionButton("‹ Retour") { if (browser.canGoBack()) browser.goBack() }, weightParams())
+        controls.addView(actionButton("Choisir dossier SD") { chooseDownloadFolder() }, weightParams())
+        controls.addView(actionButton("Accueil") { browser.loadUrl("https://www.google.com") }, weightParams())
+        browser = WebView(this).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.loadsImagesAutomatically = true
+            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    if (!url.isNullOrBlank()) address.setText(url)
+                }
+            }
+            webChromeClient = WebChromeClient()
+            setDownloadListener(DownloadListener { url, agent, disposition, mime, _ ->
+                val uri = Uri.parse(url)
+                if (uri.scheme == "https") {
+                    pendingDownload = PendingDownload(url, agent, disposition, mime)
+                    if (downloadFolderUri == null) chooseDownloadFolder() else savePendingDownload()
+                } else status.text = "Téléchargement bloqué : lien non HTTPS."
+            })
+        }
+        page.addView(bar); page.addView(controls)
+        page.addView(browser, LinearLayout.LayoutParams(-1, 0, 1f))
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        dialog.setContentView(page)
+        dialog.setOnKeyListener { _, key, event ->
+            if (key == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP && browser.canGoBack()) {
+                browser.goBack(); true
+            } else false
+        }
+        dialog.setOnDismissListener { browser.destroy(); browserDialog = null }
+        browserDialog = dialog
+        dialog.show(); dialog.window?.setLayout(-1, -1)
+        val last = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_LAST_WEB, null)
+        if (!last.isNullOrBlank()) { address.setText(last); browser.loadUrl(last) }
+    }
+
+    private fun chooseDownloadFolder() {
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQUEST_DOWNLOAD_FOLDER)
+    }
+
+    private fun savePendingDownload() {
+        val task = pendingDownload ?: return
+        val folderUri = downloadFolderUri ?: return
+        downloadExecutor.execute {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL(task.url).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true; connectTimeout = 15000; readTimeout = 30000
+                    setRequestProperty("User-Agent", task.userAgent)
+                    CookieManager.getInstance().getCookie(task.url)?.let { setRequestProperty("Cookie", it) }
+                }
+                connection.connect()
+                require(connection.responseCode in 200..299) { "Réponse HTTP ${connection.responseCode}" }
+                val filename = URLUtil.guessFileName(task.url, task.disposition, task.mime)
+                    .replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "audio-download" }
+                val folder = DocumentFile.fromTreeUri(this, folderUri) ?: error("Dossier SD inaccessible")
+                val file = folder.createFile(task.mime ?: "application/octet-stream", filename) ?: error("Création impossible")
+                contentResolver.openOutputStream(file.uri, "w").use { output ->
+                    requireNotNull(output) { "Écriture impossible" }
+                    connection.inputStream.use { input -> input.copyTo(output) }
+                }
+                runOnUiThread { status.text = "Téléchargement enregistré sur la SD : $filename" }
+            } catch (e: Exception) {
+                runOnUiThread { status.text = "Téléchargement impossible : ${e.message ?: "erreur"}" }
+            } finally { connection?.disconnect(); pendingDownload = null }
+        }
+    }
+
+    private data class PendingDownload(val url: String, val userAgent: String, val disposition: String?, val mime: String?)
+
     private fun exportLibraryJson() {
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -289,6 +500,10 @@ class MainActivity : Activity() {
         playlists.forEach { (name, values) -> lists.put(name, JSONArray(values)) }
         root.put("playlists", lists)
         root.put("activePlaylist", activePlaylistName)
+        val categoryJson = JSONObject()
+        categories.forEach { (name, values) -> categoryJson.put(name, JSONArray(values)) }
+        root.put("categories", categoryJson)
+        root.put("activeCategory", activeCategoryName)
         return root
     }
 
@@ -347,6 +562,17 @@ class MainActivity : Activity() {
                     if (importedKeys.containsKey(key)) destination.add(key)
                 }
             }
+            val importedCategories = root.optJSONObject("categories") ?: JSONObject()
+            importedCategories.keys().forEach { category ->
+                val values = importedCategories.optJSONArray(category) ?: JSONArray()
+                val destination = categories.getOrPut(category) { linkedSetOf() }
+                for (i in 0 until values.length()) {
+                    val key = values.optString(i)
+                    if (importedKeys.containsKey(key)) destination.add(key)
+                }
+            }
+            val importedActiveCategory = root.optString("activeCategory")
+            if (categories.containsKey(importedActiveCategory)) activeCategoryName = importedActiveCategory
             val requestedActive = root.optString("activePlaylist")
             if (playlists.containsKey(requestedActive)) activePlaylistName = requestedActive
             saveLibrary()
@@ -435,6 +661,12 @@ class MainActivity : Activity() {
         if (requestCode == REQUEST_EXPORT_JSON) { data.data?.let { writeLibraryJson(it) }; return }
         if (requestCode == REQUEST_IMPORT_JSON) { data.data?.let { readLibraryJson(it) }; return }
         if (requestCode == REQUEST_EXPORT_AUDIO_FOLDER) { data.data?.let { exportAudioToFolder(it) }; return }
+        if (requestCode == REQUEST_DOWNLOAD_FOLDER) { data.data?.let { uri ->
+            try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION) } catch (_: Exception) {}
+            downloadFolderUri = uri
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_DOWNLOAD_FOLDER, uri.toString()).apply()
+            savePendingDownload()
+        }; return }
         if (requestCode != REQUEST_AUDIO) return
         val selected = mutableListOf<Uri>()
         data.clipData?.let { clip ->
@@ -479,6 +711,7 @@ class MainActivity : Activity() {
             val matchesFilter = when (filter) {
                 FILTER_FAVORITES -> favorites.contains(tracks[index].toString())
                 FILTER_PLAYLIST -> playlists[activePlaylistName]?.contains(tracks[index].toString()) == true
+                filter.startsWith(CATEGORY_PREFIX) -> categories[filter.removePrefix(CATEGORY_PREFIX)]?.contains(tracks[index].toString()) == true
                 else -> true
             }
             matchesFilter && names[index].lowercase().contains(searchQuery)
@@ -488,6 +721,7 @@ class MainActivity : Activity() {
                 text = when (filter) {
                     FILTER_FAVORITES -> "Aucun favori. Utilise le cœur à côté d'un titre."
                     FILTER_PLAYLIST -> "Playlist « " + activePlaylistName + " » vide. Ajoute des titres avec le bouton +."
+                    filter.startsWith(CATEGORY_PREFIX) -> "Cet univers ne contient aucun morceau."
                     else -> "Aucun titre. Utilise « Ajouter des musiques »."
                 }
                 setTextColor(Color.LTGRAY)
@@ -521,6 +755,7 @@ class MainActivity : Activity() {
                 saveLibrary()
                 refreshTracks()
             })
+            line.addView(actionButton("▦") { assignTrackToCategory(index) })
             line.addView(actionButton("✕") { removeTrack(index) })
             tracksBox.addView(line)
             tracksBox.addView(View(this).apply { setBackgroundColor(Color.DKGRAY) },
@@ -534,6 +769,7 @@ class MainActivity : Activity() {
         names.removeAt(index)
         favorites.remove(removed.toString())
         playlists.values.forEach { it.remove(removed.toString()) }
+        categories.values.forEach { it.remove(removed.toString()) }
         if (currentIndex == index) {
             controller?.stop()
             controller?.clearMediaItems()
@@ -611,9 +847,17 @@ class MainActivity : Activity() {
             playlists["Ma playlist"] = legacy
         }
         activePlaylistName = prefs.getString(KEY_ACTIVE_PLAYLIST, null)?.takeIf { playlists.containsKey(it) } ?: playlists.keys.first()
+        val rawCategories = prefs.getString(KEY_CATEGORIES, null)
+        if (!rawCategories.isNullOrBlank()) try {
+            val obj = JSONObject(rawCategories)
+            obj.keys().forEach { name -> categories[name] = readStringArray(obj.optJSONArray(name)?.toString()).toCollection(linkedSetOf()) }
+        } catch (_: Exception) {}
+        activeCategoryName = prefs.getString(KEY_ACTIVE_CATEGORY, null).orEmpty().takeIf { categories.containsKey(it) } ?: categories.keys.firstOrNull().orEmpty()
+        downloadFolderUri = prefs.getString(KEY_DOWNLOAD_FOLDER, null)?.let { runCatching { Uri.parse(it) }.getOrNull() }
         val valid = tracks.map { it.toString() }.toSet()
         favorites.retainAll(valid)
         playlists.values.forEach { it.retainAll(valid) }
+        categories.values.forEach { it.retainAll(valid) }
     }
 
     private fun readStringArray(raw: String?): List<String> {
@@ -629,15 +873,20 @@ class MainActivity : Activity() {
         fun encode(values: Collection<String>) = JSONArray(values).toString()
         val savedLists = org.json.JSONObject()
         playlists.forEach { (name, values) -> savedLists.put(name, JSONArray(values)) }
+        val savedCategories = JSONObject()
+        categories.forEach { (name, values) -> savedCategories.put(name, JSONArray(values)) }
         prefs.edit().putString(KEY_URIS, encode(tracks.map { it.toString() }))
             .putString(KEY_NAMES, encode(names)).putString(KEY_FAVORITES, encode(favorites))
-            .putString(KEY_PLAYLISTS, savedLists.toString()).putString(KEY_ACTIVE_PLAYLIST, activePlaylistName).apply()
+            .putString(KEY_PLAYLISTS, savedLists.toString()).putString(KEY_ACTIVE_PLAYLIST, activePlaylistName)
+            .putString(KEY_CATEGORIES, savedCategories.toString()).putString(KEY_ACTIVE_CATEGORY, activeCategoryName).apply()
     }
 
     override fun onDestroy() {
         playerListener?.let { controller?.removeListener(it) }
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controller = null
+        browserDialog?.dismiss()
+        downloadExecutor.shutdown()
         super.onDestroy()
     }
 
@@ -647,14 +896,20 @@ class MainActivity : Activity() {
         private const val REQUEST_EXPORT_JSON = 4103
         private const val REQUEST_IMPORT_JSON = 4104
         private const val REQUEST_EXPORT_AUDIO_FOLDER = 4105
+        private const val REQUEST_DOWNLOAD_FOLDER = 4106
         private const val PREFS = "leafsound_library"
         private const val KEY_URIS = "uris"
         private const val KEY_NAMES = "names"
         private const val KEY_FAVORITES = "favorites"
         private const val KEY_PLAYLISTS = "playlists"
         private const val KEY_ACTIVE_PLAYLIST = "active_playlist"
+        private const val KEY_CATEGORIES = "music_categories"
+        private const val KEY_ACTIVE_CATEGORY = "active_category"
+        private const val KEY_DOWNLOAD_FOLDER = "download_folder_uri"
+        private const val KEY_LAST_WEB = "last_web_url"
         private const val FILTER_ALL = "all"
         private const val FILTER_FAVORITES = "favorites"
         private const val FILTER_PLAYLIST = "playlist"
+        private const val CATEGORY_PREFIX = "category:"
     }
 }
