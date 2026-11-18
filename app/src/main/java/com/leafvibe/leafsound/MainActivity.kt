@@ -81,7 +81,7 @@ class MainActivity : Activity() {
     private var sleepTimerRunnable: Runnable? = null
     private var filter = FILTER_PLAYLIST
     private val green = LeafColour.OASIS
-    private val dark = LeafColour.CREAM_DARK
+    private val dark get() = LeafColour.CREAM_DARK
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
