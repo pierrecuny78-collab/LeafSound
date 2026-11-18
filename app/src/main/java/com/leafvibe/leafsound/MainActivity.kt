@@ -85,7 +85,11 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        LeafColour.select(getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_THEME, "oasis") ?: "oasis")
         loadLibrary()
+        if (playlists.isEmpty()) playlists["Ma playlist"] = linkedSetOf()
+        if (!playlists.containsKey(activePlaylistName)) activePlaylistName = playlists.keys.first()
+        saveLibrary()
         requestNotificationPermission()
         buildInterface()
         connectPlaybackService()
@@ -139,7 +143,7 @@ class MainActivity : Activity() {
     private var currentPage = 0
     private var swipeStartX = 0f
     private var swipeStartY = 0f
-    private val pageTitles = listOf("♫ Musique", "▦ Univers", "🌐 Sites", "⚙ Gestion")
+    private val pageTitles = listOf("♫ Musique", "▦ Playlists", "🌐 Sites", "⚙ Gestion")
 
     private fun buildInterface() {
         val root = LinearLayout(this).apply {
@@ -232,8 +236,8 @@ class MainActivity : Activity() {
             setTextColor(LeafColour.WALNUT)
         }, LinearLayout.LayoutParams(0, -2, 1f))
         selectedPlaylistButton = actionButton("♫ " + activePlaylistName + "  ▾") { chooseActivePlaylist() }
-        selectedPlaylist.addView(selectedPlaylistButton)
-        selectedPlaylist.addView(actionButton("⚙ Paramètres") { showMusicSettings() })
+        selectedPlaylist.addView(selectedPlaylistButton, LinearLayout.LayoutParams(0, -2, 1.25f))
+        selectedPlaylist.addView(actionButton("⚙") { showMusicSettings() }, LinearLayout.LayoutParams(0, -2, 0.45f))
         page.addView(selectedPlaylist)
         page.addView(actionButton("＋ Ajouter des musiques à la bibliothèque") { chooseAudio() })
         searchField = EditText(this).apply {
@@ -372,6 +376,8 @@ class MainActivity : Activity() {
         page.addView(actionButton("Restaurer une sauvegarde (JSON)") { importLibraryJson() })
         page.addView(actionButton("Exporter les fichiers audio") { chooseAudioExportFolder() })
         page.addView(actionButton("Télécharger un fichier audio autorisé") { downloadAudio() })
+        page.addView(actionButton("🎨 Thèmes et apparence") { showThemeSettings() })
+        page.addView(actionButton("📁 Emplacements des fichiers") { showStorageLocations() })
         page.addView(actionButton("LeafTracker · statistiques (préparation)") {
             AlertDialog.Builder(this)
                 .setTitle("LeafTracker Connect")
@@ -415,12 +421,54 @@ class MainActivity : Activity() {
         Button(this).apply {
             text = label
             isAllCaps = false
-            textSize = 13f
-            setTextColor(LeafColour.CREAM_DARK)
-            setBackgroundTintList(android.content.res.ColorStateList.valueOf(LeafColour.WALNUT))
+            textSize = 12f
+            minHeight = (40 * resources.displayMetrics.density).toInt()
+            minimumHeight = minHeight
+            setPadding(5, 2, 5, 2)
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setTextColor(LeafColour.ON_PRIMARY)
+            setBackgroundTintList(android.content.res.ColorStateList.valueOf(LeafColour.PRIMARY))
             setOnClickListener { action() }
         }
 
+
+    private fun showThemeSettings() {
+        val ids = LeafColour.themes.keys.toList()
+        val current = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_THEME, "oasis")
+        val labels = ids.map { id -> LeafColour.themes[id]!!.name + if (id == current) "  ✓" else "" }.toTypedArray()
+        AlertDialog.Builder(this).setTitle("Thèmes LeafColour")
+            .setSingleChoiceItems(labels, ids.indexOf(current)) { dialog, which ->
+                val selected = ids[which]
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_THEME, selected).apply()
+                LeafColour.select(selected)
+                dialog.dismiss()
+                recreate()
+            }.setNegativeButton("Fermer", null).show()
+    }
+
+    private fun storageLabel(uri: Uri): String {
+        val display = queryDisplayName(uri)
+        val documentId = runCatching { android.provider.DocumentsContract.getDocumentId(uri) }.getOrNull()
+        val volume = when {
+            uri.authority?.contains("externalstorage", true) == true && documentId?.startsWith("primary:", true) == true -> "Stockage interne"
+            uri.authority?.contains("externalstorage", true) == true && documentId?.contains(":") == true -> "Carte SD"
+            uri.authority?.contains("media", true) == true -> "Médiathèque Android"
+            else -> uri.authority?.substringBefore(".")?.ifBlank { null } ?: "Fournisseur Android"
+        }
+        val relative = documentId?.substringAfter(":", "")?.takeIf { it.isNotBlank() }
+        return if (relative != null) "$volume · $relative" else "$volume · $display"
+    }
+
+    private fun showStorageLocations() {
+        val lines = tracks.mapIndexed { index, uri -> (index + 1).toString() + ". " + (names.getOrNull(index) ?: queryDisplayName(uri)) + "\n   " + storageLabel(uri) }
+        val body = if (lines.isEmpty()) "Aucun fichier audio enregistré." else lines.joinToString("\n\n")
+        val view = TextView(this).apply { text = body; textSize = 13f; setTextColor(LeafColour.TEXT); setPadding(18, 12, 18, 12) }
+        val scroll = ScrollView(this).apply { addView(view) }
+        AlertDialog.Builder(this).setTitle("Emplacements répertoriés · " + tracks.size + " fichier(s)")
+            .setView(scroll).setMessage("Android protège les accès par URI. LeafSound conserve ces autorisations ; le chemin exact dépend du fournisseur de fichiers.")
+            .setPositiveButton("OK", null).show()
+    }
 
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
@@ -473,12 +521,15 @@ class MainActivity : Activity() {
     private fun chooseActivePlaylist() {
         val names = playlists.keys.toTypedArray()
         if (names.isEmpty()) { createPlaylist(); return }
+        val labels = names.map { playlistName -> playlistName + "  ·  " + (playlists[playlistName]?.size ?: 0) + " titre(s)" }.toTypedArray()
         AlertDialog.Builder(this).setTitle("Choisir la playlist musicale")
-            .setSingleChoiceItems(names, names.indexOf(activePlaylistName)) { dialog, which ->
+            .setSingleChoiceItems(labels, names.indexOf(activePlaylistName)) { dialog, which ->
                 activePlaylistName = names[which]
                 filter = FILTER_PLAYLIST
+                selectedPlaylistButton?.text = "♫ " + activePlaylistName + "  ▾"
                 saveLibrary()
                 refreshTracks()
+                refreshUniversPage()
                 dialog.dismiss()
             }.setNeutralButton("＋ Nouvelle") { _, _ -> createPlaylist() }
             .setNegativeButton("Fermer", null).show()
@@ -508,7 +559,9 @@ class MainActivity : Activity() {
             "Minuteur de sommeil",
             "Paramètres des notifications",
             "Tri des morceaux",
-            "Sauvegarde et export"
+            "Sauvegarde et export",
+            "Thèmes et apparence",
+            "Emplacements des fichiers"
         )
         AlertDialog.Builder(this).setTitle("Paramètres LeafSound").setItems(options) { _, which ->
             when (which) {
@@ -519,6 +572,8 @@ class MainActivity : Activity() {
                 4 -> showNotificationSettings()
                 5 -> showSortSettings()
                 6 -> showPage(3)
+                7 -> showThemeSettings()
+                8 -> showStorageLocations()
             }
         }.show()
     }
@@ -749,7 +804,15 @@ class MainActivity : Activity() {
                 } else status.text = "Téléchargement bloqué : lien non HTTPS."
             })
         }
-        page.addView(bar); page.addView(controls)
+        page.addView(bar)
+        page.addView(actionButton("↩ Retour à LeafSound") { dialog.dismiss() }, LinearLayout.LayoutParams(-1, -2))
+        page.addView(controls)
+        page.addView(TextView(this).apply {
+            text = "Téléchargement : utilise le bouton du site, puis choisis ton dossier SD si LeafSound le demande."
+            textSize = 12f
+            setTextColor(LeafColour.TEXT)
+            setPadding(10, 5, 10, 5)
+        })
         page.addView(browser, LinearLayout.LayoutParams(-1, 0, 1f))
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
         dialog.setContentView(page)
@@ -874,6 +937,7 @@ class MainActivity : Activity() {
         playlists.forEach { (name, values) -> lists.put(name, JSONArray(values)) }
         root.put("playlists", lists)
         root.put("activePlaylist", activePlaylistName)
+        root.put("theme", getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_THEME, "oasis"))
         val categoryJson = JSONObject()
         categories.forEach { (name, values) -> categoryJson.put(name, JSONArray(values)) }
         root.put("categories", categoryJson)
@@ -1124,10 +1188,12 @@ class MainActivity : Activity() {
                 setPadding(0, 2, 0, 2)
             }
             val title = TextView(this).apply {
-                text = (if (index == currentIndex) "♫  " else "♪  ") + names[index]
-                textSize = 14f
-                setTextColor(if (index == currentIndex) LeafColour.OASIS else LeafColour.WALNUT)
-                setPadding(8, 12, 4, 12)
+                text = (if (index == currentIndex) "♫  " else "♪  ") + names[index] + "\n" + storageLabel(tracks[index])
+                textSize = 13f
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setTextColor(if (index == currentIndex) LeafColour.PRIMARY else LeafColour.TEXT)
+                setPadding(8, 8, 4, 8)
                 setOnClickListener { play(index) }
             }
             line.addView(title, LinearLayout.LayoutParams(0, -2, 1f))
@@ -1309,6 +1375,7 @@ class MainActivity : Activity() {
         private const val KEY_CATEGORY_ORDER = "music_category_order"
         private const val KEY_ACTIVE_CATEGORY = "active_category"
         private const val KEY_DOWNLOAD_FOLDER = "download_folder_uri"
+        private const val KEY_THEME = "leaf_theme"
         private const val KEY_LAST_WEB = "last_web_url"
         private const val KEY_BOOKMARKS = "browser_bookmarks"
         private const val FILTER_ALL = "all"
