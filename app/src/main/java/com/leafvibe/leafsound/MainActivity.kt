@@ -337,12 +337,17 @@ class MainActivity : Activity() {
             }, weightParams())
             actions.addView(actionButton("Voir les titres") { showPlaylistTracks(name) }, weightParams())
             row.addView(actions)
-            val trackNames = tracks.indices.filter { playlists[name]?.contains(tracks[it].toString()) == true }
-                .map { names[it] }
+            val trackIndexes = tracks.indices.filter { playlists[name]?.contains(tracks[it].toString()) == true }
+            val trackNames = trackIndexes.take(4).map { names[it] }
             row.addView(TextView(this).apply {
-                text = if (trackNames.isEmpty()) "Aucun morceau dans cette playlist" else trackNames.mapIndexed { i, title -> "${i + 1}. $title" }.joinToString("\n")
+                text = when {
+                    trackIndexes.isEmpty() -> "Aucun morceau · ajoute des titres depuis la bibliothèque"
+                    else -> trackNames.mapIndexed { i, title -> "${i + 1}. $title" }.joinToString("\n") +
+                        if (trackIndexes.size > 4) "\n… et ${trackIndexes.size - 4} autre(s)" else ""
+                }
                 textSize = 12f
-                setTextColor(LeafColour.WALNUT)
+                maxLines = 5
+                setTextColor(LeafColour.TEXT)
                 setPadding(12, 4, 8, 8)
             })
             val orderActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -1032,6 +1037,11 @@ class MainActivity : Activity() {
             root.optJSONArray("connectServices")?.let { LeafConnectCatalog.restore(this, it) }
             val requestedActive = root.optString("activePlaylist")
             if (playlists.containsKey(requestedActive)) activePlaylistName = requestedActive
+            val importedTheme = root.optString("theme")
+            if (importedTheme.isNotBlank()) {
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(KEY_THEME, importedTheme).apply()
+                LeafColour.select(importedTheme)
+            }
             saveLibrary()
             refreshTracks()
             status.text = "Import JSON terminé : $added fichier(s) audio retrouvé(s). Les URI protégées par Android doivent être réautorisées si elles viennent d'un autre appareil."
