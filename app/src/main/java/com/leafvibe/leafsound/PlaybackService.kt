@@ -70,8 +70,15 @@ class PlaybackService : MediaSessionService() {
         val categories = runCatching { JSONObject(prefs.getString("music_categories", "{}") ?: "{}") }.getOrNull()
             ?: return
         val names = mutableListOf<String>()
-        val iterator = categories.keys()
-        while (iterator.hasNext()) names.add(iterator.next())
+        val savedOrder = runCatching { org.json.JSONArray(prefs.getString("music_category_order", "[]")) }.getOrNull()
+        if (savedOrder != null) for (i in 0 until savedOrder.length()) {
+            val name = savedOrder.optString(i)
+            if (categories.has(name)) names.add(name)
+        }
+        if (names.isEmpty()) {
+            val iterator = categories.keys()
+            while (iterator.hasNext()) names.add(iterator.next())
+        }
         if (names.isEmpty()) return
         val active = prefs.getString("active_category", "").orEmpty()
         val nextName = names[(names.indexOf(active) + 1).mod(names.size)]
@@ -89,7 +96,7 @@ class PlaybackService : MediaSessionService() {
             val uri = values.optString(i)
             val title = uriToName[uri] ?: continue
             items.add(MediaItem.Builder().setUri(uri).setMediaMetadata(
-                MediaMetadata.Builder().setTitle(title).setArtist("LeafSound · $nextName").build()
+                MediaMetadata.Builder().setTitle(title).setArtist("LeafSound · Univers · $nextName").build()
             ).build())
         }
         if (items.isEmpty()) return
