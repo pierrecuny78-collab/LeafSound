@@ -159,7 +159,7 @@ class MainActivity : Activity() {
 
     private fun openAudioOutputSettings() {
         val panelOpened = if (Build.VERSION.SDK_INT >= 29) runCatching {
-            startActivity(Intent(Settings.Panel.ACTION_MEDIA_OUTPUTS))
+            startActivity(Intent("com.android.settings.panel.action.MEDIA_OUTPUTS"))
             true
         }.getOrDefault(false) else false
         if (!panelOpened) {
