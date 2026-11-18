@@ -325,17 +325,20 @@ class MainActivity : Activity() {
                 setTextColor(LeafColour.WALNUT)
             })
             val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            actions.addView(actionButton("Sélectionner") {
+            actions.addView(actionButton("✓ Choisir") {
                 activePlaylistName = name
+                selectedPlaylistButton?.text = "♫ " + name + "  ▾"
+                filter = FILTER_PLAYLIST
                 saveLibrary()
-                setFilter(FILTER_PLAYLIST)
+                refreshTracks()
                 showPage(0)
             }, weightParams())
             actions.addView(actionButton("▶ Lire") {
                 activePlaylistName = name
+                saveLibrary()
                 playActivePlaylist()
             }, weightParams())
-            actions.addView(actionButton("Voir les titres") { showPlaylistTracks(name) }, weightParams())
+            actions.addView(actionButton("♫ Titres") { showPlaylistTracks(name) }, weightParams())
             row.addView(actions)
             val trackIndexes = tracks.indices.filter { playlists[name]?.contains(tracks[it].toString()) == true }
             val trackNames = trackIndexes.take(4).map { names[it] }
@@ -812,7 +815,7 @@ class MainActivity : Activity() {
             setDownloadListener(DownloadListener { url, agent, disposition, mime, _ ->
                 val uri = Uri.parse(url)
                 if (uri.scheme == "https") {
-                    pendingDownload = PendingDownload(url, agent, disposition, mime)
+                    pendingDownload = PendingDownload(url, agent, disposition, mime, browser.url)
                     if (downloadFolderUri == null) chooseDownloadFolder() else savePendingDownload()
                 } else status.text = "Téléchargement bloqué : lien non HTTPS."
             })
@@ -891,6 +894,7 @@ class MainActivity : Activity() {
                 connection = (URL(task.url).openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = true; connectTimeout = 15000; readTimeout = 30000
                     setRequestProperty("User-Agent", task.userAgent)
+                    task.referer?.let { setRequestProperty("Referer", it) }
                     CookieManager.getInstance().getCookie(task.url)?.let { setRequestProperty("Cookie", it) }
                 }
                 connection.connect()
@@ -916,7 +920,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private data class PendingDownload(val url: String, val userAgent: String, val disposition: String?, val mime: String?)
+    private data class PendingDownload(val url: String, val userAgent: String, val disposition: String?, val mime: String?, val referer: String?)
 
     private fun exportLibraryJson() {
         val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
