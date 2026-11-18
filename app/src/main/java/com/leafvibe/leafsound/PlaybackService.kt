@@ -25,6 +25,7 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         val player = ExoPlayer.Builder(this).build().apply {
             setAudioAttributes(AudioAttributes.DEFAULT, true)
+            setHandleAudioBecomingNoisy(true)
             setWakeMode(C.WAKE_MODE_LOCAL)
         }
         val cycleCommand = SessionCommand(ACTION_NEXT_UNIVERSE, Bundle.EMPTY)
