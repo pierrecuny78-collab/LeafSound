@@ -767,9 +767,9 @@ class MainActivity : Activity() {
         if (!::tracksBox.isInitialized) return
         tracksBox.removeAllViews()
         val visible = tracks.indices.filter { index ->
-            val matchesFilter = when (filter) {
-                FILTER_FAVORITES -> favorites.contains(tracks[index].toString())
-                FILTER_PLAYLIST -> playlists[activePlaylistName]?.contains(tracks[index].toString()) == true
+            val matchesFilter = when {
+                filter == FILTER_FAVORITES -> favorites.contains(tracks[index].toString())
+                filter == FILTER_PLAYLIST -> playlists[activePlaylistName]?.contains(tracks[index].toString()) == true
                 filter.startsWith(CATEGORY_PREFIX) -> categories[filter.removePrefix(CATEGORY_PREFIX)]?.contains(tracks[index].toString()) == true
                 else -> true
             }
@@ -777,9 +777,9 @@ class MainActivity : Activity() {
         }
         if (visible.isEmpty()) {
             tracksBox.addView(TextView(this).apply {
-                text = when (filter) {
-                    FILTER_FAVORITES -> "Aucun favori. Utilise le cœur à côté d'un titre."
-                    FILTER_PLAYLIST -> "Playlist « " + activePlaylistName + " » vide. Ajoute des titres avec le bouton +."
+                text = when {
+                    filter == FILTER_FAVORITES -> "Aucun favori. Utilise le cœur à côté d'un titre."
+                    filter == FILTER_PLAYLIST -> "Playlist « " + activePlaylistName + " » vide. Ajoute des titres avec le bouton +."
                     filter.startsWith(CATEGORY_PREFIX) -> "Cet univers ne contient aucun morceau."
                     else -> "Aucun titre. Utilise « Ajouter des musiques »."
                 }
