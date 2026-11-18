@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.content.ComponentName
 import android.content.Intent
 import android.app.DownloadManager
@@ -72,6 +74,8 @@ class MainActivity : Activity() {
     private var lastQueueIndex = -1
     private var currentIndex = -1
     private var pendingExportUri: Uri? = null
+    private val sleepTimerHandler = Handler(Looper.getMainLooper())
+    private var sleepTimerRunnable: Runnable? = null
     private var filter = FILTER_ALL
     private val green = LeafColour.OASIS
     private val dark = LeafColour.CREAM_DARK
@@ -147,6 +151,7 @@ class MainActivity : Activity() {
         })
         root.addView(actionButton("＋ Ajouter des musiques") { chooseAudio() })
         root.addView(actionButton("🌐 LeafBrowser · sites & téléchargements") { openLeafBrowser() })
+        root.addView(actionButton("🎧 LeafSound Connect · services musicaux") { LeafConnectCatalog.show(this) { url -> openLeafBrowser(url) } })
         val transferActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         transferActions.addView(actionButton("Sauvegarde JSON") { exportLibraryJson() }, weightParams())
         transferActions.addView(actionButton("Importer JSON") { importLibraryJson() }, weightParams())
@@ -210,6 +215,7 @@ class MainActivity : Activity() {
             }
         }, weightParams())
         playbackModes.addView(actionButton("Répéter 1× à ∞") { chooseRepeat() }, weightParams())
+        playbackModes.addView(actionButton("🌙 Minuteur") { chooseSleepTimer() }, weightParams())
         root.addView(playbackModes)
 
         root.addView(TextView(this).apply {
@@ -273,6 +279,27 @@ class MainActivity : Activity() {
         val items = ids.map { i -> MediaItem.Builder().setUri(tracks[i]).setMediaMetadata(MediaMetadata.Builder().setTitle(names[i]).setArtist("LeafSound · Playlist · " + activePlaylistName).build()).build() }
         p.setMediaItems(items, 0, 0L); p.prepare(); p.play(); currentIndex = ids.first(); lastQueueIndex = 0
         status.text = "Lecture : " + activePlaylistName
+    }
+
+    private fun chooseSleepTimer() {
+        val choices = arrayOf("5 minutes", "10 minutes", "15 minutes", "30 minutes", "45 minutes", "60 minutes", "90 minutes", "Désactiver")
+        AlertDialog.Builder(this).setTitle("Minuteur de sommeil").setItems(choices) { _, which ->
+            sleepTimerRunnable?.let { sleepTimerHandler.removeCallbacks(it) }
+            sleepTimerRunnable = null
+            if (which == choices.lastIndex) {
+                status.text = "Minuteur désactivé."
+            } else {
+                val minutes = listOf(5, 10, 15, 30, 45, 60, 90)[which]
+                val task = Runnable {
+                    controller?.pause()
+                    status.text = "Minuteur terminé · lecture mise en pause."
+                    sleepTimerRunnable = null
+                }
+                sleepTimerRunnable = task
+                sleepTimerHandler.postDelayed(task, minutes * 60_000L)
+                status.text = "Arrêt automatique dans $minutes min."
+            }
+        }.setNegativeButton("Fermer", null).show()
     }
 
     private fun chooseRepeat() {
@@ -379,7 +406,7 @@ class MainActivity : Activity() {
         status.text = "Lecture de l'univers : $category"
     }
 
-    private fun openLeafBrowser() {
+    private fun openLeafBrowser(initialUrl: String? = null) {
         val dialog = Dialog(this)
         val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(LeafColour.CREAM_DARK) }
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(6, 6, 6, 6); setBackgroundColor(LeafColour.OASIS) }
@@ -457,8 +484,8 @@ class MainActivity : Activity() {
         dialog.setOnDismissListener { browser.destroy(); browserDialog = null }
         browserDialog = dialog
         dialog.show(); dialog.window?.setLayout(-1, -1)
-        val last = getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_LAST_WEB, null)
-        if (!last.isNullOrBlank()) { address.setText(last); browser.loadUrl(last) }
+        val last = initialUrl ?: getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_LAST_WEB, null)
+        if (!last.isNullOrBlank() && last.startsWith("https://")) { address.setText(last); browser.loadUrl(last) }
     }
 
 
@@ -578,6 +605,7 @@ class MainActivity : Activity() {
         categoryIcons.forEach { (name, emoji) -> categoryEmojiJson.put(name, emoji) }
         root.put("categoryIcons", categoryEmojiJson)
         root.put("activeCategory", activeCategoryName)
+        root.put("connectServices", LeafConnectCatalog.export(this))
         return root
     }
 
@@ -652,6 +680,7 @@ class MainActivity : Activity() {
             importedIcons.keys().forEach { name -> categoryIcons[name] = importedIcons.optString(name, "🎵") }
             val importedActiveCategory = root.optString("activeCategory")
             if (categories.containsKey(importedActiveCategory)) activeCategoryName = importedActiveCategory
+            root.optJSONArray("connectServices")?.let { LeafConnectCatalog.restore(this, it) }
             val requestedActive = root.optString("activePlaylist")
             if (playlists.containsKey(requestedActive)) activePlaylistName = requestedActive
             saveLibrary()
@@ -973,6 +1002,8 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        sleepTimerRunnable?.let { sleepTimerHandler.removeCallbacks(it) }
+        sleepTimerRunnable = null
         playerListener?.let { controller?.removeListener(it) }
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controller = null
