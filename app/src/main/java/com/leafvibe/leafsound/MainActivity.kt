@@ -78,7 +78,7 @@ class MainActivity : Activity() {
     private var pendingExportUri: Uri? = null
     private val sleepTimerHandler = Handler(Looper.getMainLooper())
     private var sleepTimerRunnable: Runnable? = null
-    private var filter = FILTER_ALL
+    private var filter = FILTER_PLAYLIST
     private val green = LeafColour.OASIS
     private val dark = LeafColour.CREAM_DARK
 
@@ -162,7 +162,6 @@ class MainActivity : Activity() {
 
         pageFlipper = ViewFlipper(this).apply {
             setBackgroundColor(dark)
-            isMeasureAllChildren = false
         }
         pageFlipper.addView(buildMusicPage())
         pageFlipper.addView(buildUniversPage())
@@ -222,8 +221,17 @@ class MainActivity : Activity() {
 
     private fun buildMusicPage(): View {
         val page = makePage()
-        addPageHeading(page, "Ma bibliothèque", "Tous tes morceaux, au même endroit.")
-        page.addView(actionButton("＋ Ajouter des musiques") { chooseAudio() })
+        addPageHeading(page, "Musique", "Ta playlist sélectionnée et uniquement ses morceaux.")
+        val selectedPlaylist = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        selectedPlaylist.addView(TextView(this).apply {
+            text = "Playlist :"
+            textSize = 15f
+            setTextColor(LeafColour.WALNUT)
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        selectedPlaylist.addView(actionButton("♫ " + activePlaylistName + "  ▾") { chooseActivePlaylist() })
+        selectedPlaylist.addView(actionButton("⚙ Paramètres") { showMusicSettings() })
+        page.addView(selectedPlaylist)
+        page.addView(actionButton("＋ Ajouter des musiques à la bibliothèque") { chooseAudio() })
         searchField = EditText(this).apply {
             hint = "Rechercher un titre…"
             setHintTextColor(LeafColour.SAND_BROWN)
@@ -241,13 +249,12 @@ class MainActivity : Activity() {
         }
         page.addView(searchField)
         val filters = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        filters.addView(actionButton("Tout") { setFilter(FILTER_ALL) }, weightParams())
         filters.addView(actionButton("♥ Favoris") { setFilter(FILTER_FAVORITES) }, weightParams())
-        filters.addView(actionButton("♫ Playlist") { setFilter(FILTER_PLAYLIST) }, weightParams())
+        filters.addView(actionButton("♫ Playlist actuelle") { setFilter(FILTER_PLAYLIST) }, weightParams())
         page.addView(filters)
         val playlistActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        playlistActions.addView(actionButton("＋ Gérer playlists") { managePlaylists() }, weightParams())
-        playlistActions.addView(actionButton("▶ Lire playlist") { playActivePlaylist() }, weightParams())
+        playlistActions.addView(actionButton("＋ Ajouter / retirer des titres") { setFilter(FILTER_ALL) }, weightParams())
+        playlistActions.addView(actionButton("▶ Lire cette playlist") { playActivePlaylist() }, weightParams())
         page.addView(playlistActions)
         val controls = LinearLayout(this).apply {
             gravity = Gravity.CENTER
@@ -274,8 +281,11 @@ class MainActivity : Activity() {
 
     private fun buildUniversPage(): View {
         val page = makePage()
-        addPageHeading(page, "Mes univers / playlists", "Tes playlists regroupées dans une fenêtre dédiée.")
-        page.addView(actionButton("＋ Créer / gérer les playlists") { managePlaylists(); refreshUniversPage() })
+        addPageHeading(page, "Playlists musicales", "Tes catégories de classement : chaque playlist contient ses propres morceaux.")
+        val playlistTools = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        playlistTools.addView(actionButton("＋ Créer") { createPlaylist(); refreshUniversPage() }, weightParams())
+        playlistTools.addView(actionButton("⚙ Gérer") { managePlaylists(); refreshUniversPage() }, weightParams())
+        page.addView(playlistTools)
         universBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         addScrollable(page, universBox)
         return page
@@ -299,13 +309,14 @@ class MainActivity : Activity() {
                 setPadding(6, 8, 6, 8)
             }
             row.addView(TextView(this).apply {
-                text = "♫  " + name + "  ·  " + count + " morceau(x)"
+                text = (if (name == activePlaylistName) "✓ " else "♫ ") + name + "  ·  " + count + " morceau(x)"
                 textSize = 16f
                 setTextColor(LeafColour.WALNUT)
             })
             val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            actions.addView(actionButton("Ouvrir") {
+            actions.addView(actionButton("Sélectionner") {
                 activePlaylistName = name
+                saveLibrary()
                 setFilter(FILTER_PLAYLIST)
                 showPage(0)
             }, weightParams())
@@ -313,6 +324,7 @@ class MainActivity : Activity() {
                 activePlaylistName = name
                 playActivePlaylist()
             }, weightParams())
+            actions.addView(actionButton("Voir les titres") { showPlaylistTracks(name) }, weightParams())
             row.addView(actions)
             universBox.addView(row)
             universBox.addView(View(this).apply { setBackgroundColor(LeafColour.SAND_BROWN) },
@@ -375,7 +387,7 @@ class MainActivity : Activity() {
         currentPage = index.coerceIn(0, pageFlipper.childCount - 1)
         pageFlipper.displayedChild = currentPage
         if (::status.isInitialized) status.text = pageTitles[currentPage] + "  ·  " + (currentPage + 1) + "/" + pageTitles.size
-        if (currentPage == 1) refreshUniversPage()
+        if (currentPage == 1) refreshUniversPage()\n        if (currentPage == 0 && ::searchField.isInitialized) refreshTracks()
     }
 
     private fun weightParams() = LinearLayout.LayoutParams(0, -2, 1f).apply {
@@ -402,7 +414,7 @@ class MainActivity : Activity() {
         val options = arrayOf("Créer", "Choisir", "Renommer", "Supprimer")
         AlertDialog.Builder(this).setTitle("Playlists : " + activePlaylistName).setItems(options) { _, which ->
             when (which) {
-                0 -> editPlaylistName("Nouvelle playlist", "") { name -> if (name.isNotBlank() && !playlists.containsKey(name)) { playlists[name] = linkedSetOf(); activePlaylistName = name; saveLibrary(); refreshTracks() } }
+                0 -> createPlaylist()
                 1 -> {
                     val names = playlists.keys.toTypedArray()
                     AlertDialog.Builder(this).setTitle("Choisir").setItems(names) { _, i -> activePlaylistName = names[i]; saveLibrary(); setFilter(FILTER_PLAYLIST) }.show()
@@ -411,6 +423,95 @@ class MainActivity : Activity() {
                 3 -> if (playlists.size > 1) AlertDialog.Builder(this).setMessage("Supprimer cette playlist ? Les fichiers audio restent intacts.").setNegativeButton("Annuler", null).setPositiveButton("Supprimer") { _, _ -> playlists.remove(activePlaylistName); activePlaylistName = playlists.keys.first(); saveLibrary(); refreshTracks() }.show() else status.text = "Il faut conserver une playlist."
             }
         }.setNegativeButton("Fermer", null).show()
+    }
+
+    private fun createPlaylist() {
+        editPlaylistName("Créer une playlist", "") { name ->
+            if (name.isNotBlank() && !playlists.containsKey(name)) {
+                playlists[name] = linkedSetOf()
+                activePlaylistName = name
+                filter = FILTER_PLAYLIST
+                saveLibrary()
+                refreshTracks()
+                refreshUniversPage()
+            } else if (name.isNotBlank()) status.text = "Cette playlist existe déjà."
+        }
+    }
+
+    private fun chooseActivePlaylist() {
+        val names = playlists.keys.toTypedArray()
+        if (names.isEmpty()) { createPlaylist(); return }
+        AlertDialog.Builder(this).setTitle("Choisir la playlist musicale")
+            .setSingleChoiceItems(names, names.indexOf(activePlaylistName)) { dialog, which ->
+                activePlaylistName = names[which]
+                filter = FILTER_PLAYLIST
+                saveLibrary()
+                refreshTracks()
+                dialog.dismiss()
+            }.setNeutralButton("＋ Nouvelle") { _, _ -> createPlaylist() }
+            .setNegativeButton("Fermer", null).show()
+    }
+
+    private fun showPlaylistTracks(name: String) {
+        val keys = playlists[name].orEmpty()
+        val titles = tracks.indices.filter { keys.contains(tracks[it].toString()) }
+            .map { names[it] }
+        val message = if (titles.isEmpty()) "Cette playlist est vide." else titles.mapIndexed { i, title -> "${i + 1}. $title" }.joinToString("\\n")
+        AlertDialog.Builder(this).setTitle("$name · ${titles.size} morceau(x)")
+            .setMessage(message).setPositiveButton("Sélectionner") { _, _ ->
+                activePlaylistName = name
+                filter = FILTER_PLAYLIST
+                saveLibrary()
+                refreshTracks()
+                showPage(0)
+            }.setNeutralButton("Lire") { _, _ -> activePlaylistName = name; playActivePlaylist() }
+            .setNegativeButton("Fermer", null).show()
+    }
+
+    private fun showMusicSettings() {
+        val options = arrayOf(
+            "Gérer les playlists",
+            "Lecture aléatoire",
+            "Répétition et nombre de tours",
+            "Minuteur de sommeil",
+            "Paramètres des notifications",
+            "Tri des morceaux",
+            "Sauvegarde et export"
+        )
+        AlertDialog.Builder(this).setTitle("Paramètres LeafSound").setItems(options) { _, which ->
+            when (which) {
+                0 -> managePlaylists()
+                1 -> controller?.let { p -> p.shuffleModeEnabled = !p.shuffleModeEnabled; status.text = "Aléatoire : " + if (p.shuffleModeEnabled) "activé" else "désactivé" }
+                2 -> chooseRepeat()
+                3 -> chooseSleepTimer()
+                4 -> showNotificationSettings()
+                5 -> showSortSettings()
+                6 -> showPage(3)
+            }
+        }.show()
+    }
+
+    private fun showNotificationSettings() {
+        val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val showCategory = prefs.getBoolean("notification_show_playlist", true)
+        val showProgress = prefs.getBoolean("notification_show_progress", true)
+        val choices = arrayOf("Afficher le nom de la playlist dans le lecteur", "Afficher la progression quand Android le permet")
+        val checked = booleanArrayOf(showCategory, showProgress)
+        AlertDialog.Builder(this).setTitle("Notification du lecteur")
+            .setMultiChoiceItems(choices, checked) { _, which, isChecked ->
+                prefs.edit().putBoolean(if (which == 0) "notification_show_playlist" else "notification_show_progress", isChecked).apply()
+            }
+            .setMessage("Android conserve la présentation système de la notification multimédia. Les boutons précédent, lecture/pause et suivant restent synchronisés avec LeafSound.")
+            .setPositiveButton("OK", null).show()
+    }
+
+    private fun showSortSettings() {
+        val choices = arrayOf("Nom A → Z", "Nom Z → A", "Ordre d'ajout")
+        AlertDialog.Builder(this).setTitle("Ordre d'affichage")
+            .setItems(choices) { _, which ->
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt("track_sort", which).apply()
+                refreshTracks()
+            }.show()
     }
 
     private fun editPlaylistName(title: String, initial: String, done: (String) -> Unit) {
@@ -970,7 +1071,7 @@ class MainActivity : Activity() {
             }
             matchesFilter && names[index].lowercase().contains(searchQuery)
         }
-        if (visible.isEmpty()) {
+        val sortMode = getSharedPreferences(PREFS, MODE_PRIVATE).getInt("track_sort", 2)\n        val orderedVisible = when (sortMode) { 0 -> visible.sortedBy { names[it].lowercase() }; 1 -> visible.sortedByDescending { names[it].lowercase() }; else -> visible }\n        if (orderedVisible.isEmpty()) {
             tracksBox.addView(TextView(this).apply {
                 text = when {
                     filter == FILTER_FAVORITES -> "Aucun favori. Utilise le cœur à côté d'un titre."
@@ -983,7 +1084,7 @@ class MainActivity : Activity() {
             })
             return
         }
-        visible.forEach { index ->
+        orderedVisible.forEach { index ->
             val uriKey = tracks[index].toString()
             val line = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -1009,7 +1110,7 @@ class MainActivity : Activity() {
                 saveLibrary()
                 refreshTracks()
             })
-            line.addView(actionButton("▦") { assignTrackToCategory(index) })
+            // Les anciennes catégories restent conservées dans les sauvegardes pour compatibilité.
             line.addView(actionButton("✕") { removeTrack(index) })
             tracksBox.addView(line)
             tracksBox.addView(View(this).apply { setBackgroundColor(LeafColour.SAND_BROWN) },
