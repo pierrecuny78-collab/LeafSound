@@ -106,7 +106,8 @@ class MainActivity : Activity() {
                             if (repeatLimit > 0 && repeatCount >= repeatLimit) { p?.repeatMode = Player.REPEAT_MODE_OFF; repeatScope = "none"; status.text = "Répétition du titre terminée." }
                         }
                         lastQueueIndex = now
-                        currentIndex = now
+                        val activeUri = mediaItem?.localConfiguration?.uri
+                        currentIndex = activeUri?.let { uri -> tracks.indexOf(uri) }?.takeIf { it >= 0 } ?: now
                         refreshTracks()
                     }
                 }
