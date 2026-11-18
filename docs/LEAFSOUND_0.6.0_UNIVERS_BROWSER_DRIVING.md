@@ -25,7 +25,7 @@ LeafBrowser ouvre les sites HTTPS dans une WebView intégrée à LeafSound :
 - JavaScript et stockage DOM pour les sites web modernes ;
 - téléchargement déclenché par un lien de téléchargement du site ;
 - choix d'un dossier de destination avec le sélecteur Android, y compris un dossier de carte SD ;
-- les fichiers téléchargés sont ajoutés automatiquement à la bibliothèque quand l'écriture réussit.
+- les fichiers audio téléchargés sont ajoutés automatiquement à la bibliothèque ; les autres fichiers restent dans le dossier SD sans polluer la bibliothèque musicale.
 
 Les pages restent dans LeafSound ; l'utilisateur n'est pas renvoyé vers un navigateur externe par le bouton de téléchargement. Les sites peuvent toutefois bloquer l'affichage dans une WebView, demander une application native ou limiter le téléchargement. LeafBrowser ne contourne ni DRM ni authentification, et les liens non HTTPS sont refusés.
 
