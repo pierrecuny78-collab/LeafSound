@@ -330,6 +330,18 @@ class MainActivity : Activity() {
             }, weightParams())
             actions.addView(actionButton("Voir les titres") { showPlaylistTracks(name) }, weightParams())
             row.addView(actions)
+            val trackNames = tracks.indices.filter { playlists[name]?.contains(tracks[it].toString()) == true }
+                .map { names[it] }
+            row.addView(TextView(this).apply {
+                text = if (trackNames.isEmpty()) "Aucun morceau dans cette playlist" else trackNames.mapIndexed { i, title -> "${i + 1}. $title" }.joinToString("\n")
+                textSize = 12f
+                setTextColor(LeafColour.WALNUT)
+                setPadding(12, 4, 8, 8)
+            })
+            val orderActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            orderActions.addView(actionButton("↑") { movePlaylist(name, -1) }, weightParams())
+            orderActions.addView(actionButton("↓") { movePlaylist(name, 1) }, weightParams())
+            row.addView(orderActions)
             universBox.addView(row)
             universBox.addView(View(this).apply { setBackgroundColor(LeafColour.SAND_BROWN) },
                 LinearLayout.LayoutParams(-1, 1))
@@ -428,6 +440,21 @@ class MainActivity : Activity() {
                 3 -> if (playlists.size > 1) AlertDialog.Builder(this).setMessage("Supprimer cette playlist ? Les fichiers audio restent intacts.").setNegativeButton("Annuler", null).setPositiveButton("Supprimer") { _, _ -> playlists.remove(activePlaylistName); activePlaylistName = playlists.keys.first(); saveLibrary(); refreshTracks() }.show() else status.text = "Il faut conserver une playlist."
             }
         }.setNegativeButton("Fermer", null).show()
+    }
+
+    private fun movePlaylist(name: String, direction: Int) {
+        val keys = playlists.keys.toMutableList()
+        val from = keys.indexOf(name)
+        val to = from + direction
+        if (from !in keys.indices || to !in keys.indices) return
+        val item = keys.removeAt(from)
+        keys.add(to, item)
+        val reordered = linkedMapOf<String, LinkedHashSet<String>>()
+        keys.forEach { key -> reordered[key] = playlists[key] ?: linkedSetOf() }
+        playlists.clear()
+        playlists.putAll(reordered)
+        saveLibrary()
+        refreshUniversPage()
     }
 
     private fun createPlaylist() {
