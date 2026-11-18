@@ -29,11 +29,7 @@ class PlaybackService : MediaSessionService() {
             setWakeMode(C.WAKE_MODE_LOCAL)
         }
         val cycleCommand = SessionCommand(ACTION_NEXT_UNIVERSE, Bundle.EMPTY)
-        val categoryButton = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
-            .setDisplayName("Univers suivant")
-            .setCustomIconResId(R.drawable.ic_category)
-            .setSessionCommand(cycleCommand)
-            .build()
+        val categoryButton = buildCategoryButton("Univers suivant", cycleCommand)
         val callback = object : MediaSession.Callback {
             override fun onConnect(
                 session: MediaSession,
@@ -98,10 +94,18 @@ class PlaybackService : MediaSessionService() {
         }
         if (items.isEmpty()) return
         prefs.edit().putString("active_category", nextName).apply()
+        mediaSession?.setCustomLayout(listOf(buildCategoryButton("Suivant · $nextName", SessionCommand(ACTION_NEXT_UNIVERSE, Bundle.EMPTY))))
         player.setMediaItems(items, 0, 0L)
         player.prepare()
         player.play()
     }
+
+    private fun buildCategoryButton(label: String, command: SessionCommand): CommandButton =
+        CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+            .setDisplayName(label)
+            .setCustomIconResId(R.drawable.ic_category)
+            .setSessionCommand(command)
+            .build()
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
