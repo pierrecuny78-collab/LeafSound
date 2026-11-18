@@ -488,8 +488,7 @@ class MainActivity : Activity() {
         val keys = playlists[name].orEmpty()
         val titles = tracks.indices.filter { keys.contains(tracks[it].toString()) }
             .map { names[it] }
-        val message = if (titles.isEmpty()) "Cette playlist est vide." else titles.mapIndexed { i, title -> "${i + 1}. $title" }.joinToString("\
-")
+        val message = if (titles.isEmpty()) "Cette playlist est vide." else titles.mapIndexed { i, title -> "${i + 1}. $title" }.joinToString("\n")
         AlertDialog.Builder(this).setTitle("$name · ${titles.size} morceau(x)")
             .setMessage(message).setPositiveButton("Sélectionner") { _, _ ->
                 activePlaylistName = name
