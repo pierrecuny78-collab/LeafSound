@@ -154,15 +154,15 @@ class MainActivity : Activity() {
         root.addView(TextView(this).apply {
             text = "LeafSound"
             textSize = 27f
-            setTextColor(LeafColour.CREAM_DARK)
-            setBackgroundColor(LeafColour.OASIS)
+            setTextColor(LeafColour.ON_PRIMARY)
+            setBackgroundColor(LeafColour.PRIMARY)
             setPadding(14, 12, 14, 12)
             gravity = Gravity.CENTER_VERTICAL
         })
         val subtitle = TextView(this).apply {
             text = "Ta musique. Ta bibliothèque. Ta liberté."
             textSize = 13f
-            setTextColor(LeafColour.WALNUT)
+            setTextColor(LeafColour.TEXT)
             setPadding(4, 5, 4, 8)
         }
         root.addView(subtitle)
@@ -240,6 +240,7 @@ class MainActivity : Activity() {
         selectedPlaylist.addView(actionButton("⚙") { showMusicSettings() }, LinearLayout.LayoutParams(0, -2, 0.45f))
         page.addView(selectedPlaylist)
         page.addView(actionButton("＋ Ajouter des musiques à la bibliothèque") { chooseAudio() })
+        page.addView(actionButton("📁 Voir les emplacements des titres") { showStorageLocations() })
         searchField = EditText(this).apply {
             hint = "Rechercher un titre…"
             setHintTextColor(LeafColour.SAND_BROWN)
@@ -314,14 +315,16 @@ class MainActivity : Activity() {
             val count = playlists[name]?.size ?: 0
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(6, 8, 6, 8)
+                val pad = (10 * resources.displayMetrics.density).toInt()
+                setPadding(pad, pad, pad, pad)
+                setBackgroundColor(LeafColour.SURFACE)
             }
             row.addView(TextView(this).apply {
                 text = (if (name == activePlaylistName) "✓ " else "♫ ") + name + "  ·  " + count + " morceau(x)"
                 textSize = 16f
                 setTextColor(LeafColour.WALNUT)
             })
-            val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             actions.addView(actionButton("Sélectionner") {
                 activePlaylistName = name
                 saveLibrary()
@@ -346,7 +349,11 @@ class MainActivity : Activity() {
             orderActions.addView(actionButton("↑") { movePlaylist(name, -1) }, weightParams())
             orderActions.addView(actionButton("↓") { movePlaylist(name, 1) }, weightParams())
             row.addView(orderActions)
-            universBox.addView(row)
+            val cardParams = LinearLayout.LayoutParams(-1, -2).apply {
+                val gap = (6 * resources.displayMetrics.density).toInt()
+                setMargins(0, gap, 0, gap)
+            }
+            universBox.addView(row, cardParams)
             universBox.addView(View(this).apply { setBackgroundColor(LeafColour.SAND_BROWN) },
                 LinearLayout.LayoutParams(-1, 1))
         }
@@ -424,7 +431,8 @@ class MainActivity : Activity() {
             textSize = 12f
             minHeight = (40 * resources.displayMetrics.density).toInt()
             minimumHeight = minHeight
-            setPadding(5, 2, 5, 2)
+            val pad = (6 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 2, pad, 2)
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
             setTextColor(LeafColour.ON_PRIMARY)
@@ -1210,8 +1218,9 @@ class MainActivity : Activity() {
             })
             // Les anciennes catégories restent conservées dans les sauvegardes pour compatibilité.
             line.addView(actionButton("✕") { removeTrack(index) })
+            line.setBackgroundColor(LeafColour.SURFACE)
             tracksBox.addView(line)
-            tracksBox.addView(View(this).apply { setBackgroundColor(LeafColour.SAND_BROWN) },
+            tracksBox.addView(View(this).apply { setBackgroundColor(LeafColour.BORDER) },
                 LinearLayout.LayoutParams(-1, 1))
         }
     }
