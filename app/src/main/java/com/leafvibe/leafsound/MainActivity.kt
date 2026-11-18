@@ -526,15 +526,12 @@ class MainActivity : Activity() {
 
     private fun showNotificationSettings() {
         val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
-        val showCategory = prefs.getBoolean("notification_show_playlist", true)
-        val showProgress = prefs.getBoolean("notification_show_progress", true)
-        val choices = arrayOf("Afficher le nom de la playlist dans le lecteur", "Afficher la progression quand Android le permet")
-        val checked = booleanArrayOf(showCategory, showProgress)
+        val showPlaylist = booleanArrayOf(prefs.getBoolean("notification_show_playlist", true))
         AlertDialog.Builder(this).setTitle("Notification du lecteur")
-            .setMultiChoiceItems(choices, checked) { _, which, isChecked ->
-                prefs.edit().putBoolean(if (which == 0) "notification_show_playlist" else "notification_show_progress", isChecked).apply()
+            .setMultiChoiceItems(arrayOf("Afficher le nom de la playlist dans les informations du morceau"), showPlaylist) { _, _, checked ->
+                prefs.edit().putBoolean("notification_show_playlist", checked).apply()
             }
-            .setMessage("Android conserve la présentation système de la notification multimédia. Les boutons précédent, lecture/pause et suivant restent synchronisés avec LeafSound.")
+            .setMessage("Les boutons précédent, lecture/pause et suivant sont fournis par la session multimédia Android et pilotent le même lecteur que LeafSound. Android garde la main sur l'apparence générale de la notification.")
             .setPositiveButton("OK", null).show()
     }
 
