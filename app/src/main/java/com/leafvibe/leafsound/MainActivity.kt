@@ -230,6 +230,7 @@ class MainActivity : Activity() {
             val choices = arrayOf("Désactivé", "1×", "2×", "3×", "4×", "5×", "∞")
             AlertDialog.Builder(this).setTitle("Nombre de répétitions").setItems(choices) { _, n ->
                 val p = controller ?: return@setItems
+                if (scope == 1) playActivePlaylist()
                 repeatLimit = when (n) { 0 -> 0; 6 -> -1; else -> n }
                 repeatCount = 0
                 repeatScope = if (repeatLimit == 0) "none" else if (scope == 0) "track" else "playlist"
@@ -422,7 +423,10 @@ class MainActivity : Activity() {
             val obj = org.json.JSONObject(raw)
             obj.keys().forEach { name -> playlists[name] = readStringArray(obj.optJSONArray(name)?.toString()).toCollection(linkedSetOf()) }
         } catch (_: Exception) {}
-        if (playlists.isEmpty()) playlists["Ma playlist"] = linkedSetOf()
+        if (playlists.isEmpty()) {
+            val legacy = readStringArray(prefs.getString("playlist", null)).toCollection(linkedSetOf())
+            playlists["Ma playlist"] = legacy
+        }
         activePlaylistName = prefs.getString(KEY_ACTIVE_PLAYLIST, null)?.takeIf { playlists.containsKey(it) } ?: playlists.keys.first()
         val valid = tracks.map { it.toString() }.toSet()
         favorites.retainAll(valid)
