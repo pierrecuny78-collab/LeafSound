@@ -1253,7 +1253,7 @@ class MainActivity : Activity() {
         scanningMusicFolder = true
         downloadExecutor.execute {
             val found = linkedMapOf<String, Pair<Uri, String>>()
-            val extensions = setOf("mp3", "m4a", "aac", "wav", "flac", "ogg", "opus", "wma", "aiff", "aif", "mid", "midi", "amr", "3gp")
+            val extensions = setOf("mp3", "m4a", "mp4", "aac", "wav", "flac", "ogg", "opus", "wma", "aiff", "aif", "mid", "midi", "amr", "3gp")
             fun walk(folder: DocumentFile, depth: Int) {
                 if (depth > 8 || found.size >= 20000) return
                 folder.listFiles().forEach { item ->
@@ -1302,7 +1302,8 @@ class MainActivity : Activity() {
     private fun chooseAudio() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
-            type = "audio/*"
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("audio/*", "video/mp4", "application/mp4"))
             putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
         }
         startActivityForResult(intent, REQUEST_AUDIO)
